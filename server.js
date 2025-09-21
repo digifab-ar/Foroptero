@@ -22,7 +22,7 @@ app.post('/api/comando', (req, res) => {
     return res.status(400).json({ error: 'Faltan campos' });
   }
 
-  if (token !== 'mi-token-secreto') {
+  if (token !== 'foropteroiñaki2022#') {
     return res.status(403).json({ error: 'Token inválido' });
   }
 
