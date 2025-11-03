@@ -39,9 +39,9 @@ mqttClient.on("message", (topic, message) => {
     try {
       const estado = JSON.parse(message.toString());
       ultimoEstado = estado;
-      console.log("Estado recibido:", estado);
+      console.log("📡 Estado recibido:", estado);
     } catch (err) {
-      console.log("Error al parsear mensaje MQTT:", err.message);
+      console.log("⚠️ Error al parsear mensaje MQTT:", err.message);
     }
   }
 });
@@ -62,21 +62,21 @@ app.post("/api/movimiento", (req, res) => {
   if (!R && !L)
     return res.status(400).json({ error: "Debe incluir al menos R o L" });
 
-  // --- Construir comando MQTT ---
+  // --- Construir comando MQTT con timestamp ---
   const comando = {
     accion,
     ...(R && { R }),
     ...(L && { L }),
-    token
+    token,
+    timestamp: Math.floor(Date.now() / 1000) // 🕒 sello temporal UTC
   };
 
-  // --- Publicar comando ---
+  // --- Publicar comando en MQTT ---
   mqttClient.publish(MQTT_TOPIC_CMD, JSON.stringify(comando));
-  console.log("Comando publicado en MQTT:", comando);
+  console.log("📤 Comando publicado en MQTT:", comando);
 
   // --- Respuesta inmediata al cliente ---
-  const timestamp = Math.floor(Date.now() / 1000);
-  res.json({ status: "busy", timestamp });
+  res.json({ status: "busy", timestamp: comando.timestamp });
 });
 
 // ============================================================
