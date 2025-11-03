@@ -39,9 +39,9 @@ mqttClient.on("message", (topic, message) => {
     try {
       const estado = JSON.parse(message.toString());
       ultimoEstado = estado;
-      console.log("📡 Estado recibido:", estado);
+      console.log("Estado recibido:", estado);
     } catch (err) {
-      console.log("⚠️ Error al parsear mensaje MQTT:", err.message);
+      console.log("Error al parsear mensaje MQTT:", err.message);
     }
   }
 });
@@ -73,7 +73,7 @@ app.post("/api/movimiento", (req, res) => {
 
   // --- Publicar comando en MQTT ---
   mqttClient.publish(MQTT_TOPIC_CMD, JSON.stringify(comando));
-  console.log("📤 Comando publicado en MQTT:", comando);
+  console.log("Comando publicado en MQTT:", comando);
 
   // --- Respuesta inmediata al cliente ---
   res.json({ status: "busy", timestamp: comando.timestamp });
