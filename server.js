@@ -6,8 +6,14 @@ import cors from "cors";
 // CONFIGURACIÓN GENERAL
 // ============================================================
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: "*", // 🔓 permite acceso desde cualquier dominio (Framer incluido)
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"],
+}));
+
 app.use(express.json());
+
 
 const PORT = process.env.PORT || 3000;
 const MQTT_SERVER = "mqtt://broker.hivemq.com";
