@@ -54,13 +54,14 @@ mqttClient.on("message", (topic, message) => {
 
 // ============================================================
 // ENDPOINT: /api/movimiento (sin token público)
+// Acepta acciones: "movimiento" y "home"
 // ============================================================
 app.post("/api/movimiento", (req, res) => {
   const { accion, R, L } = req.body;
 
   // --- Validaciones básicas ---
-  if (!accion || accion !== "movimiento")
-    return res.status(400).json({ error: "Acción inválida" });
+  if (!accion || (accion !== "movimiento" && accion !== "home"))
+    return res.status(400).json({ error: "Acción inválida. Debe ser 'movimiento' o 'home'" });
 
   if (!R && !L)
     return res.status(400).json({ error: "Debe incluir al menos R o L" });
