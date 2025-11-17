@@ -22,9 +22,17 @@ const MQTT_TOPIC_PANTALLA = "foroptero01/pantalla"; // comandos a la pantalla
 // Token interno (no se expone en las llamadas del GPT)
 const TOKEN_ESPERADO = "foropteroiñaki2022#";
 
+// Configuración de timeout para detección de offline
+const TIMEOUT_OFFLINE_MS = 90 * 1000; // 1:30 min en milisegundos
+const INTERVALO_CHECK_MS = 60 * 1000; // 1 minuto en milisegundos
+
 // Estado local
-let ultimoEstado = { status: "ready" };
+let ultimoEstado = { 
+  status: "offline", 
+  timestamp: Math.floor(Date.now() / 1000) 
+};
 let estadoPantalla = { letra: null, logmar: null, timestamp: null };
+let ultimoHeartbeatTimestamp = null; // null = nunca recibido mensaje
 
 // ============================================================
 // CONEXIÓN MQTT
@@ -41,8 +49,12 @@ mqttClient.on("message", (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
     if (topic === MQTT_TOPIC_STATE) {
-      ultimoEstado = data;
-      console.log("📡 Estado foróptero recibido:", data);
+      // Solo actualizar si el estado es "ready" o "busy" (heartbeat válido)
+      if (data.status === "ready" || data.status === "busy") {
+        ultimoHeartbeatTimestamp = Date.now();
+        ultimoEstado = data;
+        console.log("📡 Estado foróptero recibido:", data);
+      }
     } else if (topic === MQTT_TOPIC_PANTALLA) {
       estadoPantalla = data;
       console.log("📺 Estado pantalla recibido:", data);
@@ -51,6 +63,34 @@ mqttClient.on("message", (topic, message) => {
     console.error("⚠️ Error al parsear mensaje MQTT:", err.message);
   }
 });
+
+// ============================================================
+// FUNCIÓN: Verificación de timeout para detección de offline
+// ============================================================
+function checkHeartbeatTimeout() {
+  if (ultimoHeartbeatTimestamp === null) {
+    // Nunca se recibió un mensaje, mantener offline
+    if (ultimoEstado.status !== "offline") {
+      ultimoEstado = {
+        status: "offline",
+        timestamp: Math.floor(Date.now() / 1000)
+      };
+    }
+    return;
+  }
+  
+  const tiempoTranscurrido = Date.now() - ultimoHeartbeatTimestamp;
+  
+  if (tiempoTranscurrido > TIMEOUT_OFFLINE_MS) {
+    if (ultimoEstado.status !== "offline") {
+      ultimoEstado = {
+        status: "offline",
+        timestamp: Math.floor(Date.now() / 1000)
+      };
+      console.log("⚠️ Foróptero marcado como OFFLINE (sin heartbeat por más de 90s)");
+    }
+  }
+}
 
 // ============================================================
 // ENDPOINT: /api/movimiento (sin token público)
@@ -138,5 +178,8 @@ app.listen(PORT, () => {
   console.log(`MQTT CMD → ${MQTT_TOPIC_CMD}`);
   console.log(`MQTT STATE → ${MQTT_TOPIC_STATE}`);
   console.log(`MQTT PANTALLA → ${MQTT_TOPIC_PANTALLA}`);
+  
+  // Inicializar verificación periódica de heartbeat
+  setInterval(checkHeartbeatTimeout, INTERVALO_CHECK_MS);
+  console.log(`⏱️ Verificación de heartbeat cada ${INTERVALO_CHECK_MS / 1000}s, timeout: ${TIMEOUT_OFFLINE_MS / 1000}s`);
 });
-``
