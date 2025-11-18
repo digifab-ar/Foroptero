@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3000;
 const MQTT_SERVER = "mqtt://broker.hivemq.com";
 
 // Tópicos específicos
-const MQTT_TOPIC_CMD = "foroptero01/cmd";       // comandos al ESP32
+const MQTT_TOPIC_CMD = "foroptero01/cmd";       // comandos al ESP32 
 const MQTT_TOPIC_STATE = "foroptero01/state";   // estado publicado por el ESP32
 const MQTT_TOPIC_PANTALLA = "foroptero01/pantalla"; // comandos a la pantalla
 
