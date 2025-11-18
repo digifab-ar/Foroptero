@@ -200,9 +200,13 @@ app.post("/api/examen/nuevo", (req, res) => {
 // POST /api/examen/instrucciones - Obtener pasos a ejecutar
 app.post("/api/examen/instrucciones", (req, res) => {
   try {
-    const { respuestaPaciente } = req.body;
+    const { respuestaPaciente, interpretacionAgudeza } = req.body;
     
-    const resultado = obtenerInstrucciones(respuestaPaciente || null);
+    // Si hay interpretación de agudeza, pasarla al procesamiento
+    const resultado = obtenerInstrucciones(
+      respuestaPaciente || null,
+      interpretacionAgudeza || null
+    );
     
     if (!resultado.ok) {
       return res.status(400).json(resultado);
