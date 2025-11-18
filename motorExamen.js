@@ -357,6 +357,9 @@ export function aplicarRecalculoCilindrico(cilindro) {
   // - Si es 0 o -0.25 → mantener igual
   // - Si es menor a -6.00 → no modificar
   
+  // NOTA: Para números negativos, "entre X y Y" significa:
+  // cilindro <= X (más negativo) && cilindro >= Y (menos negativo)
+  
   if (cilindro === 0 || cilindro === -0.25) {
     return cilindro; // Mantener igual
   }
@@ -365,15 +368,18 @@ export function aplicarRecalculoCilindrico(cilindro) {
     return cilindro; // No modificar
   }
   
-  if (cilindro >= -0.50 && cilindro <= -2.00) {
+  // Entre -0.50 y -2.00: cilindro <= -0.50 && cilindro >= -2.00
+  if (cilindro <= -0.50 && cilindro >= -2.00) {
     return cilindro + 0.50; // Sumar +0.50
   }
   
-  if (cilindro >= -2.25 && cilindro <= -4.00) {
+  // Entre -2.25 y -4.00: cilindro <= -2.25 && cilindro >= -4.00
+  if (cilindro <= -2.25 && cilindro >= -4.00) {
     return cilindro + 0.75; // Sumar +0.75
   }
   
-  if (cilindro >= -4.25 && cilindro <= -6.00) {
+  // Entre -4.25 y -6.00: cilindro <= -4.25 && cilindro >= -6.00
+  if (cilindro <= -4.25 && cilindro >= -6.00) {
     return cilindro + 1.50; // Sumar +1.50
   }
   
