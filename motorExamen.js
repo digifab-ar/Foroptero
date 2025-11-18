@@ -635,14 +635,20 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
   // Procesar según interpretación
   if (resultado === 'correcta') {
     // Letra correcta
+    // Verificar si es el mismo logMAR que el último correcto (ANTES de actualizar)
+    const esMismoLogMAR = estado.logmarActual === estado.ultimoLogmarCorrecto;
+    
+    // Actualizar último logMAR correcto
     estado.ultimoLogmarCorrecto = estado.logmarActual;
     estado.mejorLogmar = estado.mejorLogmar === null 
       ? estado.logmarActual 
       : Math.min(estado.mejorLogmar, estado.logmarActual);
     
-    // Si es el mismo logMAR que antes, incrementar confirmaciones
-    if (estado.confirmaciones > 0 && estado.logmarActual === estado.ultimoLogmarCorrecto) {
+    // Si es el mismo logMAR que el último correcto, incrementar confirmaciones
+    if (esMismoLogMAR && estado.ultimoLogmarCorrecto !== null) {
       estado.confirmaciones += 1;
+      
+      console.log(`✅ Confirmación ${estado.confirmaciones}/2 en logMAR ${estado.logmarActual}`);
       
       // Si hay 2 confirmaciones, resultado confirmado
       if (estado.confirmaciones >= 2) {
@@ -678,20 +684,28 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
           siguienteTest
         };
       }
+      
+      // Si aún no hay 2 confirmaciones, mostrar otra letra en el mismo logMAR
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
+      
+      // NO bajar logMAR, mantener el mismo para confirmar
+      return { ok: true, necesitaNuevaLetra: true };
     } else {
-      // Nuevo logMAR, resetear confirmaciones
-      estado.confirmaciones = 0;
+      // Nuevo logMAR o primera respuesta correcta, resetear confirmaciones a 1
+      estado.confirmaciones = 1;
+      
+      // Bajar logMAR (si no está en 0.0)
+      if (estado.logmarActual > 0.0) {
+        estado.logmarActual = bajarLogMAR(estado.logmarActual);
+      }
+      
+      // Generar nueva letra
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
     }
-    
-    // Bajar logMAR (si no está en 0.0)
-    if (estado.logmarActual > 0.0) {
-      estado.logmarActual = bajarLogMAR(estado.logmarActual);
-    }
-    
-    // Generar nueva letra
-    const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
-    estado.letraActual = nuevaLetra;
-    estado.letrasUsadas.push(nuevaLetra);
     
   } else {
     // Respuesta incorrecta, borroso, no ve, etc.
@@ -699,6 +713,7 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
     if (estado.ultimoLogmarCorrecto !== null) {
       // Volver al último correcto
       estado.logmarActual = estado.ultimoLogmarCorrecto;
+      // Resetear confirmaciones porque estamos empezando a confirmar de nuevo este logMAR
       estado.confirmaciones = 0;
       
       // Generar nueva letra
