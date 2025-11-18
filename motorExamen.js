@@ -73,6 +73,31 @@ let estadoExamen = {
   // Respuesta pendiente del paciente (para procesamiento)
   respuestaPendiente: null,
   
+  // Secuencia del examen
+  secuenciaExamen: {
+    testsActivos: [], // Array de { tipo, ojo }
+    indiceActual: 0,
+    testActual: null, // { tipo: 'agudeza_inicial', ojo: 'R' }
+    resultados: {
+      R: {
+        agudezaInicial: null,
+        esfericoGrueso: null,
+        esfericoFino: null,
+        cilindrico: null,
+        cilindricoAngulo: null,
+        agudezaAlcanzada: null
+      },
+      L: {
+        agudezaInicial: null,
+        esfericoGrueso: null,
+        esfericoFino: null,
+        cilindrico: null,
+        cilindricoAngulo: null,
+        agudezaAlcanzada: null
+      }
+    }
+  },
+  
   // Timestamps
   iniciado: null,
   finalizado: null
@@ -131,6 +156,29 @@ export function inicializarExamen() {
       confirmaciones: 0
     },
     respuestaPendiente: null,
+    secuenciaExamen: {
+      testsActivos: [],
+      indiceActual: 0,
+      testActual: null,
+      resultados: {
+        R: {
+          agudezaInicial: null,
+          esfericoGrueso: null,
+          esfericoFino: null,
+          cilindrico: null,
+          cilindricoAngulo: null,
+          agudezaAlcanzada: null
+        },
+        L: {
+          agudezaInicial: null,
+          esfericoGrueso: null,
+          esfericoFino: null,
+          cilindrico: null,
+          cilindricoAngulo: null,
+          agudezaAlcanzada: null
+        }
+      }
+    },
     iniciado: Date.now(),
     finalizado: null
   };
@@ -402,6 +450,117 @@ export function aplicarRecalculoCilindrico(cilindro) {
 }
 
 /**
+ * Determina qué tests de cilindro incluir según el valor del cilindro recalculado
+ * @param {number} cilindro - Valor cilíndrico recalculado
+ * @returns {object} - Configuración de tests activos
+ */
+function determinarTestsActivos(cilindro) {
+  const tests = {
+    cilindrico: false,
+    cilindricoAngulo: false
+  };
+  
+  if (cilindro === 0 || cilindro === -0.25) {
+    // No incluir tests de cilindro
+    tests.cilindrico = false;
+    tests.cilindricoAngulo = false;
+  } else if (cilindro >= -0.50 && cilindro <= -1.75) {
+    // Incluir test de cilindro, pero NO de ángulo
+    tests.cilindrico = true;
+    tests.cilindricoAngulo = false;
+  } else if (cilindro >= -2.00 && cilindro <= -6.00) {
+    // Incluir ambos tests
+    tests.cilindrico = true;
+    tests.cilindricoAngulo = true;
+  }
+  
+  return tests;
+}
+
+/**
+ * Genera la secuencia completa del examen basada en valores recalculados
+ * @returns {array} - Array de tests activos en orden de ejecución
+ */
+function generarSecuenciaExamen() {
+  const valoresR = estadoExamen.valoresRecalculados.R;
+  const valoresL = estadoExamen.valoresRecalculados.L;
+  
+  // Determinar tests activos para cada ojo
+  const testsR = determinarTestsActivos(valoresR.cilindro);
+  const testsL = determinarTestsActivos(valoresL.cilindro);
+  
+  // Construir secuencia de tests activos
+  const secuencia = [];
+  
+  // OJO DERECHO (R)
+  secuencia.push({ tipo: 'agudeza_inicial', ojo: 'R' });
+  secuencia.push({ tipo: 'esferico_grueso', ojo: 'R' });
+  secuencia.push({ tipo: 'esferico_fino', ojo: 'R' });
+  
+  if (testsR.cilindrico) {
+    secuencia.push({ tipo: 'cilindrico', ojo: 'R' });
+  }
+  
+  if (testsR.cilindricoAngulo) {
+    secuencia.push({ tipo: 'cilindrico_angulo', ojo: 'R' });
+  }
+  
+  secuencia.push({ tipo: 'agudeza_alcanzada', ojo: 'R' });
+  
+  // OJO IZQUIERDO (L)
+  secuencia.push({ tipo: 'agudeza_inicial', ojo: 'L' });
+  secuencia.push({ tipo: 'esferico_grueso', ojo: 'L' });
+  secuencia.push({ tipo: 'esferico_fino', ojo: 'L' });
+  
+  if (testsL.cilindrico) {
+    secuencia.push({ tipo: 'cilindrico', ojo: 'L' });
+  }
+  
+  if (testsL.cilindricoAngulo) {
+    secuencia.push({ tipo: 'cilindrico_angulo', ojo: 'L' });
+  }
+  
+  secuencia.push({ tipo: 'agudeza_alcanzada', ojo: 'L' });
+  
+  // Binocular (opcional, se implementará después)
+  // secuencia.push({ tipo: 'binocular', ojo: 'B' });
+  
+  return secuencia;
+}
+
+/**
+ * Obtiene el test actual que se está ejecutando
+ * @returns {object|null} - Test actual o null si no hay
+ */
+export function obtenerTestActual() {
+  return estadoExamen.secuenciaExamen.testActual;
+}
+
+/**
+ * Avanza al siguiente test en la secuencia
+ * @returns {object|null} - Nuevo test actual o null si se completó el examen
+ */
+export function avanzarTest() {
+  const secuencia = estadoExamen.secuenciaExamen;
+  
+  if (secuencia.indiceActual >= secuencia.testsActivos.length - 1) {
+    // Se completó el examen
+    estadoExamen.etapa = 'FINALIZADO';
+    estadoExamen.finalizado = Date.now();
+    secuencia.testActual = null;
+    return null;
+  }
+  
+  // Avanzar al siguiente test
+  secuencia.indiceActual += 1;
+  secuencia.testActual = secuencia.testsActivos[secuencia.indiceActual];
+  
+  console.log(`➡️ Avanzando a test: ${secuencia.testActual.tipo} (${secuencia.testActual.ojo})`);
+  
+  return secuencia.testActual;
+}
+
+/**
  * Genera pasos para ETAPA_2 (cálculo silencioso)
  * Esta etapa no genera pasos visibles, solo procesa internamente
  */
@@ -435,7 +594,7 @@ function generarPasosEtapa2() {
 }
 
 /**
- * Genera pasos para ETAPA_3 (preparación del foróptero)
+ * Genera pasos para ETAPA_3 (preparación del foróptero y definición de secuencia)
  */
 function generarPasosEtapa3() {
   // Verificar si ya se generaron los pasos de ETAPA_3
@@ -443,8 +602,7 @@ function generarPasosEtapa3() {
   if (estadoExamen.subEtapa === 'FOROPTERO_CONFIGURADO') {
     // Ya se configuró el foróptero, pasar a ETAPA_4
     estadoExamen.etapa = 'ETAPA_4';
-    estadoExamen.ojoActual = 'R';
-    estadoExamen.subEtapa = 'AGUDEZA_R';
+    estadoExamen.ojoActual = estadoExamen.secuenciaExamen.testActual?.ojo || 'R';
     
     // Retornar pasos vacíos para que el agente espere respuesta
     // (ETAPA_4 se implementará en Fase 3)
@@ -453,12 +611,25 @@ function generarPasosEtapa3() {
       pasos: [],
       contexto: {
         etapa: 'ETAPA_4',
-        subEtapa: 'AGUDEZA_R'
+        testActual: estadoExamen.secuenciaExamen.testActual
       }
     };
   }
   
-  // Usar valores recalculados para configurar el foróptero
+  // 1. Generar secuencia completa del examen
+  const secuencia = generarSecuenciaExamen();
+  
+  // 2. Guardar secuencia en el estado
+  estadoExamen.secuenciaExamen.testsActivos = secuencia;
+  estadoExamen.secuenciaExamen.indiceActual = 0;
+  estadoExamen.secuenciaExamen.testActual = secuencia[0] || null;
+  
+  console.log('✅ Secuencia del examen generada:');
+  console.log('  Total de tests:', secuencia.length);
+  console.log('  Tests activos:', secuencia.map(t => `${t.tipo}(${t.ojo})`).join(', '));
+  console.log('  Test actual:', estadoExamen.secuenciaExamen.testActual);
+  
+  // 3. Usar valores recalculados para configurar el foróptero
   const valoresR = estadoExamen.valoresRecalculados.R;
   const valoresL = estadoExamen.valoresRecalculados.L;
   
@@ -466,8 +637,14 @@ function generarPasosEtapa3() {
   // - Ojo derecho (R): valores recalculados, oclusión: "open"
   // - Ojo izquierdo (L): oclusión: "close"
   
-  // Marcar que se generaron los pasos (para evitar regenerarlos)
+  // 4. Marcar que se generaron los pasos (para evitar regenerarlos)
   estadoExamen.subEtapa = 'FOROPTERO_CONFIGURADO';
+  
+  // 5. Establecer ojo actual según el primer test
+  estadoExamen.ojoActual = estadoExamen.secuenciaExamen.testActual?.ojo || 'R';
+  
+  // 6. Pasar a ETAPA_4 (el primer test se ejecutará en Etapa 4)
+  estadoExamen.etapa = 'ETAPA_4';
   
   return {
     ok: true,
@@ -499,8 +676,10 @@ function generarPasosEtapa3() {
       }
     ],
     contexto: {
-      etapa: 'ETAPA_3',
-      subEtapa: 'FOROPTERO_CONFIGURADO'
+      etapa: 'ETAPA_4',
+      testActual: estadoExamen.secuenciaExamen.testActual,
+      totalTests: secuencia.length,
+      indiceActual: 0
     }
   };
 }
@@ -577,6 +756,9 @@ export function obtenerEstado() {
     estado: {
       etapa: estadoExamen.etapa,
       ojoActual: estadoExamen.ojoActual,
+      testActual: estadoExamen.secuenciaExamen.testActual,
+      totalTests: estadoExamen.secuenciaExamen.testsActivos.length,
+      indiceActual: estadoExamen.secuenciaExamen.indiceActual,
       progreso: calcularProgreso(),
       ultimaAccion: obtenerUltimaAccion()
     }
