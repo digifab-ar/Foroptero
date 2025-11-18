@@ -1,6 +1,11 @@
 import express from "express";
 import mqtt from "mqtt";
 import cors from "cors";
+import {
+  inicializarExamen,
+  obtenerInstrucciones,
+  obtenerEstado
+} from "./motorExamen.js";
 
 // ============================================================
 // CONFIGURACIÓN GENERAL
@@ -171,6 +176,63 @@ app.get("/api/pantalla", (req, res) => {
 });
 
 // ============================================================
+// ENDPOINTS: Motor de Examen Visual
+// ============================================================
+
+// POST /api/examen/nuevo - Inicializar examen
+app.post("/api/examen/nuevo", (req, res) => {
+  try {
+    const estado = inicializarExamen();
+    res.json({
+      ok: true,
+      mensaje: "Examen inicializado",
+      estado: estado
+    });
+  } catch (error) {
+    console.error("❌ Error inicializando examen:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Error al inicializar examen"
+    });
+  }
+});
+
+// POST /api/examen/instrucciones - Obtener pasos a ejecutar
+app.post("/api/examen/instrucciones", (req, res) => {
+  try {
+    const { respuestaPaciente } = req.body;
+    
+    const resultado = obtenerInstrucciones(respuestaPaciente || null);
+    
+    if (!resultado.ok) {
+      return res.status(400).json(resultado);
+    }
+    
+    res.json(resultado);
+  } catch (error) {
+    console.error("❌ Error obteniendo instrucciones:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Error al obtener instrucciones"
+    });
+  }
+});
+
+// GET /api/examen/estado - Consultar estado actual
+app.get("/api/examen/estado", (req, res) => {
+  try {
+    const resultado = obtenerEstado();
+    res.json(resultado);
+  } catch (error) {
+    console.error("❌ Error obteniendo estado:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Error al obtener estado"
+    });
+  }
+});
+
+// ============================================================
 // SERVER
 // ============================================================
 app.listen(PORT, () => {
@@ -183,3 +245,4 @@ app.listen(PORT, () => {
   setInterval(checkHeartbeatTimeout, INTERVALO_CHECK_MS);
   console.log(`⏱️ Verificación de heartbeat cada ${INTERVALO_CHECK_MS / 1000}s, timeout: ${TIMEOUT_OFFLINE_MS / 1000}s`);
 });
+
