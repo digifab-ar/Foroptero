@@ -338,61 +338,6 @@ function generarPasosEtapa1() {
 }
 
 /**
- * Genera pasos para ETAPA_3 (preparación del foróptero)
- */
-function generarPasosEtapa3() {
-  // Usar valores recalculados para configurar el foróptero
-  const valoresR = estadoExamen.valoresRecalculados.R;
-  const valoresL = estadoExamen.valoresRecalculados.L;
-  
-  // Configuración inicial:
-  // - R: abierto (open) con valores recalculados
-  // - L: cerrado (close)
-  const configForoptero = {
-    R: {
-      esfera: valoresR.esfera,
-      cilindro: valoresR.cilindro,
-      angulo: valoresR.angulo,
-      occlusion: 'open'
-    },
-    L: {
-      occlusion: 'close'
-    }
-  };
-  
-  // Pasar a ETAPA_4 después de ejecutar estos pasos
-  estadoExamen.etapa = 'ETAPA_4';
-  estadoExamen.ojoActual = 'R'; // Comenzamos con ojo derecho
-  
-  console.log('✅ Configuración foróptero ETAPA_3:', configForoptero);
-  
-  return {
-    ok: true,
-    pasos: [
-      {
-        tipo: 'foroptero',
-        orden: 1,
-        foroptero: configForoptero
-      },
-      {
-        tipo: 'esperar',
-        orden: 2,
-        esperarSegundos: 2
-      },
-      {
-        tipo: 'hablar',
-        orden: 3,
-        mensaje: 'Vamos a empezar con este ojo. Mirá la pantalla.'
-      }
-    ],
-    contexto: {
-      etapa: 'ETAPA_4',
-      subEtapa: 'AGUDEZA_R'
-    }
-  };
-}
-
-/**
  * Aplica las reglas de recálculo cilíndrico según protocolo clínico
  * @param {number} cilindro - Valor cilíndrico original
  * @returns {number} - Valor cilíndrico recalculado
