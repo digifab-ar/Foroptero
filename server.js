@@ -4,7 +4,8 @@ import cors from "cors";
 import {
   inicializarExamen,
   obtenerInstrucciones,
-  obtenerEstado
+  obtenerEstado,
+  inicializarEjecutores
 } from "./motorExamen.js";
 
 // ============================================================
@@ -176,6 +177,102 @@ app.get("/api/pantalla", (req, res) => {
 });
 
 // ============================================================
+// FUNCIONES INTERNAS: Ejecución directa de comandos
+// (Para uso desde motorExamen.js, sin pasar por HTTP)
+// ============================================================
+
+/**
+ * Ejecuta comando de foróptero internamente (sin endpoint HTTP)
+ * @param {object} config - Configuración { R?: {...}, L?: {...} }
+ * @returns {Promise<object>} - Resultado de la ejecución
+ */
+export async function ejecutarComandoForopteroInterno(config) {
+  return new Promise((resolve) => {
+    const { R, L } = config;
+    
+    // Validar que al menos uno tenga configuración
+    if (!R && !L) {
+      resolve({ 
+        ok: false, 
+        error: 'Debe incluir al menos R o L' 
+      });
+      return;
+    }
+    
+    // Construir comando con token interno
+    const comando = {
+      accion: 'movimiento',
+      ...(R && { R }),
+      ...(L && { L }),
+      token: TOKEN_ESPERADO,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+    
+    // Publicar comando MQTT
+    mqttClient.publish(MQTT_TOPIC_CMD, JSON.stringify(comando));
+    console.log("📤 [INTERNO] Comando MQTT → foróptero:", comando);
+    
+    // Retornar inmediatamente (no esperamos confirmación para no bloquear)
+    // El comando se envió, el dispositivo lo procesará
+    resolve({ 
+      ok: true, 
+      status: 'sent', 
+      timestamp: comando.timestamp 
+    });
+  });
+}
+
+/**
+ * Ejecuta comando de TV internamente (sin endpoint HTTP)
+ * @param {object} config - Configuración { letra: string, logmar: number }
+ * @returns {Promise<object>} - Resultado de la ejecución
+ */
+export async function ejecutarComandoTVInterno(config) {
+  return new Promise((resolve) => {
+    const { letra, logmar } = config;
+    
+    // Validar parámetros
+    if (!letra || logmar === undefined) {
+      resolve({ 
+        ok: false, 
+        error: 'Debe incluir letra y logmar' 
+      });
+      return;
+    }
+    
+    // Construir comando con token interno
+    const comandoPantalla = {
+      dispositivo: 'pantalla',
+      accion: 'mostrar',
+      letra,
+      logmar,
+      token: TOKEN_ESPERADO,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+    
+    // Publicar comando MQTT
+    mqttClient.publish(MQTT_TOPIC_PANTALLA, JSON.stringify(comandoPantalla));
+    console.log("📤 [INTERNO] Comando MQTT → pantalla:", comandoPantalla);
+    
+    // Actualizar estado local
+    estadoPantalla = {
+      letra,
+      logmar,
+      timestamp: comandoPantalla.timestamp
+    };
+    
+    // Retornar inmediatamente
+    resolve({ 
+      ok: true, 
+      status: 'sent', 
+      letra, 
+      logmar, 
+      timestamp: comandoPantalla.timestamp 
+    });
+  });
+}
+
+// ============================================================
 // ENDPOINTS: Motor de Examen Visual
 // ============================================================
 
@@ -198,12 +295,13 @@ app.post("/api/examen/nuevo", (req, res) => {
 });
 
 // POST /api/examen/instrucciones - Obtener pasos a ejecutar
-app.post("/api/examen/instrucciones", (req, res) => {
+app.post("/api/examen/instrucciones", async (req, res) => {
   try {
     const { respuestaPaciente, interpretacionAgudeza } = req.body;
     
     // Si hay interpretación de agudeza, pasarla al procesamiento
-    const resultado = obtenerInstrucciones(
+    // Nota: obtenerInstrucciones ahora es async y ejecuta comandos automáticamente
+    const resultado = await obtenerInstrucciones(
       respuestaPaciente || null,
       interpretacionAgudeza || null
     );
@@ -269,6 +367,12 @@ app.listen(PORT, () => {
   console.log(`MQTT CMD → ${MQTT_TOPIC_CMD}`);
   console.log(`MQTT STATE → ${MQTT_TOPIC_STATE}`);
   console.log(`MQTT PANTALLA → ${MQTT_TOPIC_PANTALLA}`);
+  
+  // Inicializar ejecutores internos en motorExamen.js
+  inicializarEjecutores(
+    ejecutarComandoForopteroInterno,
+    ejecutarComandoTVInterno
+  );
   
   // Inicializar verificación periódica de heartbeat
   setInterval(checkHeartbeatTimeout, INTERVALO_CHECK_MS);
