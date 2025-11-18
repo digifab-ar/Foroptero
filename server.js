@@ -232,6 +232,31 @@ app.get("/api/examen/estado", (req, res) => {
   }
 });
 
+// POST /api/examen/reiniciar - Reiniciar examen (vuelve a etapa 1)
+app.post("/api/examen/reiniciar", (req, res) => {
+  try {
+    const estado = inicializarExamen();
+    res.json({
+      ok: true,
+      mensaje: "Examen reiniciado",
+      estado: estado,
+      pasos: [
+        {
+          tipo: 'hablar',
+          orden: 1,
+          mensaje: 'Perfecto, vamos a reiniciar el examen. Escribí los valores del autorefractómetro. Ejemplo: <R> +0.75 , -1.75 , 60 / <L> +2.75 , 0.00 , 0'
+        }
+      ]
+    });
+  } catch (error) {
+    console.error("❌ Error reiniciando examen:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Error al reiniciar examen"
+    });
+  }
+});
+
 // ============================================================
 // SERVER
 // ============================================================
