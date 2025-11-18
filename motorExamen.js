@@ -262,10 +262,15 @@ export function procesarRespuesta(respuestaPaciente) {
       // significa que está listo, pasar a ETAPA_4
       if (estadoExamen.subEtapa === 'FOROPTERO_CONFIGURADO') {
         estadoExamen.etapa = 'ETAPA_4';
-        estadoExamen.ojoActual = 'R';
-        estadoExamen.subEtapa = 'AGUDEZA_R';
+        estadoExamen.ojoActual = estadoExamen.secuenciaExamen.testActual?.ojo || 'R';
+        estadoExamen.subEtapa = null;
         console.log('✅ Foróptero configurado, pasando a ETAPA_4');
       }
+      return { ok: true };
+    
+    case 'ETAPA_4':
+      // ETAPA_4 se procesa directamente en obtenerInstrucciones() con interpretacionAgudeza
+      // Este case no se debería ejecutar, pero por seguridad retornamos ok
       return { ok: true };
     
     default:
@@ -323,11 +328,7 @@ export function generarPasos() {
       return generarPasosEtapa3();
     
     case 'ETAPA_4':
-      // Se implementará en Fase 3
-      return {
-        ok: false,
-        error: `Etapa ${estadoExamen.etapa} no implementada aún`
-      };
+      return generarPasosEtapa4();
     
     default:
       return {
@@ -561,6 +562,167 @@ export function avanzarTest() {
 }
 
 /**
+ * Funciones auxiliares para agudeza visual
+ */
+
+/**
+ * Baja el valor logMAR al siguiente más pequeño
+ */
+function bajarLogMAR(logmar) {
+  const secuencia = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0];
+  const indice = secuencia.indexOf(logmar);
+  if (indice > 0) {
+    return secuencia[indice - 1];
+  }
+  return logmar; // Ya está en el mínimo
+}
+
+/**
+ * Sube el valor logMAR al siguiente más grande
+ */
+function subirLogMAR(logmar) {
+  const secuencia = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0];
+  const indice = secuencia.indexOf(logmar);
+  if (indice < secuencia.length - 1) {
+    return secuencia[indice + 1];
+  }
+  return logmar; // Ya está en el máximo
+}
+
+/**
+ * Genera una letra Sloan diferente a las usadas
+ */
+function generarLetraSloan(letrasUsadas) {
+  const letrasSloan = ['C', 'D', 'H', 'K', 'N', 'O', 'R', 'S', 'V', 'Z'];
+  const disponibles = letrasSloan.filter(l => !letrasUsadas.includes(l));
+  
+  if (disponibles.length === 0) {
+    // Si se usaron todas, resetear y elegir una diferente a la última
+    const ultima = letrasUsadas[letrasUsadas.length - 1];
+    const sinUltima = letrasSloan.filter(l => l !== ultima);
+    return sinUltima[Math.floor(Math.random() * sinUltima.length)];
+  }
+  
+  return disponibles[Math.floor(Math.random() * disponibles.length)];
+}
+
+/**
+ * Procesa respuesta del paciente en test de agudeza visual
+ * @param {string} respuestaPaciente - Respuesta del paciente (texto crudo)
+ * @param {object} interpretacionAgudeza - Interpretación estructurada del agente
+ * @returns {object} - Resultado del procesamiento
+ */
+function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
+  const estado = estadoExamen.agudezaEstado;
+  const testActual = estadoExamen.secuenciaExamen.testActual;
+  
+  // Validar que estamos en test de agudeza
+  if (!testActual || testActual.tipo !== 'agudeza_inicial') {
+    return { ok: false, error: 'No estamos en test de agudeza' };
+  }
+  
+  const ojo = testActual.ojo;
+  const resultado = interpretacionAgudeza?.resultado || 'no_se';
+  
+  console.log(`📊 Procesando respuesta agudeza (${ojo}):`, {
+    respuestaPaciente,
+    resultado,
+    logmarActual: estado.logmarActual,
+    ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+    confirmaciones: estado.confirmaciones
+  });
+  
+  // Procesar según interpretación
+  if (resultado === 'correcta') {
+    // Letra correcta
+    estado.ultimoLogmarCorrecto = estado.logmarActual;
+    estado.mejorLogmar = estado.mejorLogmar === null 
+      ? estado.logmarActual 
+      : Math.min(estado.mejorLogmar, estado.logmarActual);
+    
+    // Si es el mismo logMAR que antes, incrementar confirmaciones
+    if (estado.confirmaciones > 0 && estado.logmarActual === estado.ultimoLogmarCorrecto) {
+      estado.confirmaciones += 1;
+      
+      // Si hay 2 confirmaciones, resultado confirmado
+      if (estado.confirmaciones >= 2) {
+        // Guardar resultado
+        estadoExamen.agudezaVisual[ojo] = {
+          logmar: estado.logmarActual,
+          letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
+          confirmado: true
+        };
+        
+        // Guardar en secuencia
+        estadoExamen.secuenciaExamen.resultados[ojo].agudezaInicial = estado.logmarActual;
+        
+        console.log(`✅ Agudeza confirmada para ${ojo}: logMAR ${estado.logmarActual}`);
+        
+        // Resetear estado de agudeza para el siguiente test
+        estado.ojo = null;
+        estado.logmarActual = null;
+        estado.letraActual = null;
+        estado.mejorLogmar = null;
+        estado.ultimoLogmarCorrecto = null;
+        estado.letrasUsadas = [];
+        estado.intentos = 0;
+        estado.confirmaciones = 0;
+        
+        // Avanzar al siguiente test
+        const siguienteTest = avanzarTest();
+        
+        return { 
+          ok: true, 
+          resultadoConfirmado: true,
+          logmarFinal: estadoExamen.agudezaVisual[ojo].logmar,
+          siguienteTest
+        };
+      }
+    } else {
+      // Nuevo logMAR, resetear confirmaciones
+      estado.confirmaciones = 0;
+    }
+    
+    // Bajar logMAR (si no está en 0.0)
+    if (estado.logmarActual > 0.0) {
+      estado.logmarActual = bajarLogMAR(estado.logmarActual);
+    }
+    
+    // Generar nueva letra
+    const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+    estado.letraActual = nuevaLetra;
+    estado.letrasUsadas.push(nuevaLetra);
+    
+  } else {
+    // Respuesta incorrecta, borroso, no ve, etc.
+    
+    if (estado.ultimoLogmarCorrecto !== null) {
+      // Volver al último correcto
+      estado.logmarActual = estado.ultimoLogmarCorrecto;
+      estado.confirmaciones = 0;
+      
+      // Generar nueva letra
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
+      
+    } else {
+      // Primera respuesta, subir logMAR
+      estado.logmarActual = subirLogMAR(estado.logmarActual);
+      
+      // Generar nueva letra
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
+    }
+  }
+  
+  estado.intentos += 1;
+  
+  return { ok: true, necesitaNuevaLetra: true };
+}
+
+/**
  * Genera pasos para ETAPA_2 (cálculo silencioso)
  * Esta etapa no genera pasos visibles, solo procesa internamente
  */
@@ -591,6 +753,98 @@ function generarPasosEtapa2() {
   // La transición a ETAPA_3 se hace automáticamente
   // Generar pasos de ETAPA_3 inmediatamente
   return generarPasosEtapa3();
+}
+
+/**
+ * Genera pasos para ETAPA_4 (test de agudeza visual)
+ */
+function generarPasosEtapa4() {
+  const testActual = estadoExamen.secuenciaExamen.testActual;
+  
+  // Validar que estamos en test de agudeza
+  if (!testActual || testActual.tipo !== 'agudeza_inicial') {
+    return {
+      ok: false,
+      error: 'No estamos en test de agudeza visual'
+    };
+  }
+  
+  const ojo = testActual.ojo;
+  const estado = estadoExamen.agudezaEstado;
+  
+  // Inicializar estado de agudeza si es la primera vez
+  if (estado.ojo !== ojo || estado.logmarActual === null) {
+    estado.ojo = ojo;
+    estado.logmarActual = 0.4; // Inicio con logMAR 0.4
+    estado.letraActual = 'H'; // Primera letra siempre 'H'
+    estado.mejorLogmar = null;
+    estado.ultimoLogmarCorrecto = null;
+    estado.letrasUsadas = ['H'];
+    estado.intentos = 0;
+    estado.confirmaciones = 0;
+    
+    console.log(`🔍 Iniciando test de agudeza visual para ${ojo}`);
+  }
+  
+  // Si el resultado ya está confirmado, avanzar al siguiente test
+  if (estadoExamen.agudezaVisual[ojo]?.confirmado) {
+    const siguienteTest = avanzarTest();
+    if (siguienteTest) {
+      // Cambiar a la etapa del siguiente test
+      if (siguienteTest.tipo === 'agudeza_inicial') {
+        // Siguiente test también es agudeza (otro ojo)
+        return generarPasosEtapa4();
+      } else {
+        // Siguiente test es de lentes, cambiar a ETAPA_5
+        estadoExamen.etapa = 'ETAPA_5';
+        return generarPasos(); // Generar pasos de la nueva etapa
+      }
+    } else {
+      // Examen completado
+      estadoExamen.etapa = 'FINALIZADO';
+      return {
+        ok: true,
+        pasos: [
+          {
+            tipo: 'hablar',
+            orden: 1,
+            mensaje: 'Perfecto, hemos completado el examen visual.'
+          }
+        ]
+      };
+    }
+  }
+  
+  // Generar pasos: TV + Hablar
+  const pasos = [
+    {
+      tipo: 'tv',
+      orden: 1,
+      letra: estado.letraActual,
+      logmar: estado.logmarActual
+    },
+    {
+      tipo: 'hablar',
+      orden: 2,
+      mensaje: 'Mirá la pantalla. Decime qué letra ves.'
+    }
+  ];
+  
+  return {
+    ok: true,
+    pasos,
+    contexto: {
+      etapa: 'ETAPA_4',
+      testActual,
+      agudezaEstado: {
+        logmarActual: estado.logmarActual,
+        letraActual: estado.letraActual,
+        mejorLogmar: estado.mejorLogmar,
+        ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+        confirmaciones: estado.confirmaciones
+      }
+    }
+  };
 }
 
 /**
@@ -687,10 +941,52 @@ function generarPasosEtapa3() {
 /**
  * Obtiene instrucciones (pasos) para el agente
  * Si hay respuestaPaciente, la procesa primero
+ * @param {string|null} respuestaPaciente - Respuesta del paciente
+ * @param {object|null} interpretacionAgudeza - Interpretación estructurada del agente (para ETAPA_4)
  */
-export function obtenerInstrucciones(respuestaPaciente = null) {
+export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgudeza = null) {
   // Si hay respuesta del paciente, procesarla primero
   if (respuestaPaciente) {
+    // Si estamos en ETAPA_4 y hay interpretación, usar procesarRespuestaAgudeza directamente
+    if (estadoExamen.etapa === 'ETAPA_4' && interpretacionAgudeza) {
+      const resultado = procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza);
+      
+      if (!resultado.ok) {
+        return {
+          ok: false,
+          error: resultado.error || 'Error procesando respuesta de agudeza'
+        };
+      }
+      
+      // Si se confirmó el resultado, generar pasos del siguiente test
+      if (resultado.resultadoConfirmado) {
+        // Generar pasos del siguiente test
+        const pasos = generarPasos();
+        return {
+          ok: true,
+          pasos: pasos.pasos || [],
+          contexto: pasos.contexto || {
+            etapa: estadoExamen.etapa,
+            testActual: estadoExamen.secuenciaExamen.testActual
+          }
+        };
+      }
+      
+      // Si necesita nueva letra, generar pasos
+      if (resultado.necesitaNuevaLetra) {
+        const pasos = generarPasosEtapa4();
+        return {
+          ok: true,
+          pasos: pasos.pasos || [],
+          contexto: pasos.contexto || {
+            etapa: estadoExamen.etapa,
+            testActual: estadoExamen.secuenciaExamen.testActual
+          }
+        };
+      }
+    }
+    
+    // Procesamiento normal para otras etapas
     const resultado = procesarRespuesta(respuestaPaciente);
     
     if (!resultado.ok) {
