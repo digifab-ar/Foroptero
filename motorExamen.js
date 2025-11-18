@@ -351,14 +351,15 @@ function generarPasosEtapa1() {
  */
 export function aplicarRecalculoCilindrico(cilindro) {
   // Reglas de ajuste:
-  // - Cilindro entre -0.50 y -2.00 → sumar +0.50 (menos negativo)
-  // - Entre -2.25 y -4.00 → sumar +0.75
-  // - Entre -4.25 y -6.00 → sumar +1.50
+  // - Cilindro entre -0.50 y -2.00 (inclusive) → sumar +0.50 (menos negativo)
+  // - Entre -2.25 y -4.00 (inclusive) → sumar +0.75
+  // - Entre -4.25 y -6.00 (inclusive) → sumar +1.50
   // - Si es 0 o -0.25 → mantener igual
   // - Si es menor a -6.00 → no modificar
   
   // NOTA: Para números negativos, "entre X y Y" significa:
   // cilindro <= X (más negativo) && cilindro >= Y (menos negativo)
+  // Los valores entre rangos (ej: entre -2.00 y -2.25) se tratan con la regla más cercana
   
   if (cilindro === 0 || cilindro === -0.25) {
     return cilindro; // Mantener igual
@@ -368,22 +369,35 @@ export function aplicarRecalculoCilindrico(cilindro) {
     return cilindro; // No modificar
   }
   
-  // Entre -0.50 y -2.00: cilindro <= -0.50 && cilindro >= -2.00
+  // Entre -0.50 y -2.00 (inclusive): cilindro <= -0.50 && cilindro >= -2.00
   if (cilindro <= -0.50 && cilindro >= -2.00) {
     return cilindro + 0.50; // Sumar +0.50
   }
   
-  // Entre -2.25 y -4.00: cilindro <= -2.25 && cilindro >= -4.00
+  // Entre -2.00 y -2.25 (gap): aplicar regla de -2.25 a -4.00 (más cercana)
+  // O mejor: extender el rango -0.50 a -2.00 hasta -2.24 para cubrir el gap
+  if (cilindro < -2.00 && cilindro > -2.25) {
+    // Valores entre -2.00 y -2.25: aplicar regla de -2.25 (sumar +0.75)
+    return cilindro + 0.75;
+  }
+  
+  // Entre -2.25 y -4.00 (inclusive): cilindro <= -2.25 && cilindro >= -4.00
   if (cilindro <= -2.25 && cilindro >= -4.00) {
     return cilindro + 0.75; // Sumar +0.75
   }
   
-  // Entre -4.25 y -6.00: cilindro <= -4.25 && cilindro >= -6.00
+  // Entre -4.00 y -4.25 (gap): aplicar regla de -4.25 a -6.00 (más cercana)
+  if (cilindro < -4.00 && cilindro > -4.25) {
+    // Valores entre -4.00 y -4.25: aplicar regla de -4.25 (sumar +1.50)
+    return cilindro + 1.50;
+  }
+  
+  // Entre -4.25 y -6.00 (inclusive): cilindro <= -4.25 && cilindro >= -6.00
   if (cilindro <= -4.25 && cilindro >= -6.00) {
     return cilindro + 1.50; // Sumar +1.50
   }
   
-  // Para valores fuera de los rangos definidos, mantener igual
+  // Para valores fuera de los rangos definidos (ej: entre -0.25 y -0.50), mantener igual
   return cilindro;
 }
 
@@ -408,10 +422,11 @@ function generarPasosEtapa2() {
   // Pasar a ETAPA_3
   estadoExamen.etapa = 'ETAPA_3';
   
-  console.log('✅ Valores recalculados:', {
-    iniciales: estadoExamen.valoresIniciales,
-    recalculados: estadoExamen.valoresRecalculados
-  });
+  console.log('✅ Valores recalculados:');
+  console.log('  Iniciales R:', estadoExamen.valoresIniciales.R);
+  console.log('  Recalculados R:', estadoExamen.valoresRecalculados.R);
+  console.log('  Iniciales L:', estadoExamen.valoresIniciales.L);
+  console.log('  Recalculados L:', estadoExamen.valoresRecalculados.L);
   
   // Esta etapa es silenciosa, no genera pasos visibles
   // La transición a ETAPA_3 se hace automáticamente
