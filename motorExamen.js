@@ -3,7 +3,25 @@
  * 
  * State Machine que maneja toda la lógica del examen visual.
  * El agente solo ejecuta pasos, el backend decide TODO.
+ * 
+ * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV)
+ * y solo retorna pasos de tipo "hablar" al agente.
  */
+
+// Importar funciones de ejecución interna desde server.js
+// Nota: Estas funciones se importarán dinámicamente para evitar dependencia circular
+let ejecutarComandoForopteroInterno = null;
+let ejecutarComandoTVInterno = null;
+
+/**
+ * Inicializa las funciones de ejecución interna
+ * Se debe llamar desde server.js después de crear las funciones
+ */
+export function inicializarEjecutores(foropteroFn, tvFn) {
+  ejecutarComandoForopteroInterno = foropteroFn;
+  ejecutarComandoTVInterno = tvFn;
+  console.log('✅ Ejecutores internos inicializados');
+}
 
 // Estado global del examen (en memoria para MVP)
 let estadoExamen = {
@@ -954,12 +972,87 @@ function generarPasosEtapa3() {
 }
 
 /**
+ * Ejecuta pasos automáticamente (foróptero, TV, esperar)
+ * Solo ejecuta pasos que no son de tipo "hablar"
+ * @param {Array} pasos - Array de pasos a ejecutar
+ * @returns {Promise<object>} - Resultado de la ejecución
+ */
+async function ejecutarPasosAutomaticamente(pasos) {
+  if (!pasos || pasos.length === 0) {
+    return { ok: true, ejecutados: [] };
+  }
+  
+  const pasosAEjecutar = pasos.filter(p => 
+    p.tipo === 'foroptero' || p.tipo === 'tv' || p.tipo === 'esperar'
+  );
+  
+  if (pasosAEjecutar.length === 0) {
+    return { ok: true, ejecutados: [] };
+  }
+  
+  const ejecutados = [];
+  const errores = [];
+  
+  console.log(`🔧 Ejecutando ${pasosAEjecutar.length} pasos automáticamente...`);
+  
+  for (const paso of pasosAEjecutar) {
+    try {
+      if (paso.tipo === 'foroptero') {
+        if (!ejecutarComandoForopteroInterno) {
+          console.warn('⚠️ ejecutarComandoForopteroInterno no inicializado');
+          continue;
+        }
+        const resultado = await ejecutarComandoForopteroInterno(paso.foroptero);
+        ejecutados.push({ tipo: 'foroptero', resultado });
+        console.log('✅ Comando foróptero ejecutado:', resultado);
+        
+        // Esperar un momento después de ejecutar foróptero (para que el dispositivo procese)
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+      } else if (paso.tipo === 'tv') {
+        if (!ejecutarComandoTVInterno) {
+          console.warn('⚠️ ejecutarComandoTVInterno no inicializado');
+          continue;
+        }
+        const resultado = await ejecutarComandoTVInterno({
+          letra: paso.letra,
+          logmar: paso.logmar
+        });
+        ejecutados.push({ tipo: 'tv', resultado });
+        console.log('✅ Comando TV ejecutado:', resultado);
+        
+        // Esperar un momento después de ejecutar TV
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+      } else if (paso.tipo === 'esperar') {
+        const segundos = paso.esperarSegundos || 0;
+        console.log(`⏳ Esperando ${segundos} segundos...`);
+        await new Promise(resolve => setTimeout(resolve, segundos * 1000));
+        ejecutados.push({ tipo: 'esperar', segundos });
+      }
+    } catch (error) {
+      console.error(`❌ Error ejecutando paso ${paso.tipo}:`, error);
+      errores.push({ tipo: paso.tipo, error: error.message });
+      // Continuar con el siguiente paso aunque haya error
+    }
+  }
+  
+  return {
+    ok: errores.length === 0,
+    ejecutados,
+    errores: errores.length > 0 ? errores : undefined
+  };
+}
+
+/**
  * Obtiene instrucciones (pasos) para el agente
  * Si hay respuestaPaciente, la procesa primero
+ * Ejecuta automáticamente los comandos de dispositivos (foróptero, TV)
+ * y solo retorna pasos de tipo "hablar" al agente
  * @param {string|null} respuestaPaciente - Respuesta del paciente
  * @param {object|null} interpretacionAgudeza - Interpretación estructurada del agente (para ETAPA_4)
  */
-export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgudeza = null) {
+export async function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgudeza = null) {
   // Si hay respuesta del paciente, procesarla primero
   if (respuestaPaciente) {
     // Si estamos en ETAPA_4 y hay interpretación, usar procesarRespuestaAgudeza directamente
@@ -977,9 +1070,16 @@ export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgu
       if (resultado.resultadoConfirmado) {
         // Generar pasos del siguiente test
         const pasos = generarPasos();
+        
+        // Ejecutar pasos automáticamente
+        await ejecutarPasosAutomaticamente(pasos.pasos || []);
+        
+        // Filtrar: solo retornar pasos de tipo "hablar"
+        const pasosParaAgente = (pasos.pasos || []).filter(p => p.tipo === 'hablar');
+        
         return {
           ok: true,
-          pasos: pasos.pasos || [],
+          pasos: pasosParaAgente,
           contexto: pasos.contexto || {
             etapa: estadoExamen.etapa,
             testActual: estadoExamen.secuenciaExamen.testActual
@@ -990,9 +1090,16 @@ export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgu
       // Si necesita nueva letra, generar pasos
       if (resultado.necesitaNuevaLetra) {
         const pasos = generarPasosEtapa4();
+        
+        // Ejecutar pasos automáticamente
+        await ejecutarPasosAutomaticamente(pasos.pasos || []);
+        
+        // Filtrar: solo retornar pasos de tipo "hablar"
+        const pasosParaAgente = (pasos.pasos || []).filter(p => p.tipo === 'hablar');
+        
         return {
           ok: true,
-          pasos: pasos.pasos || [],
+          pasos: pasosParaAgente,
           contexto: pasos.contexto || {
             etapa: estadoExamen.etapa,
             testActual: estadoExamen.secuenciaExamen.testActual
@@ -1013,9 +1120,15 @@ export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgu
     
     // Si el procesamiento generó pasos (ej: error de validación), retornarlos
     if (resultado.pasos) {
+      // Ejecutar pasos automáticamente (aunque en este caso solo deberían ser "hablar")
+      await ejecutarPasosAutomaticamente(resultado.pasos);
+      
+      // Filtrar: solo retornar pasos de tipo "hablar"
+      const pasosParaAgente = resultado.pasos.filter(p => p.tipo === 'hablar');
+      
       return {
         ok: true,
-        pasos: resultado.pasos,
+        pasos: pasosParaAgente,
         contexto: {
           etapa: estadoExamen.etapa,
           subEtapa: estadoExamen.subEtapa
@@ -1037,9 +1150,15 @@ export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgu
     // La etapa cambió internamente, generar pasos de la nueva etapa
     const nuevosPasos = generarPasos();
     if (nuevosPasos.ok) {
+      // Ejecutar pasos automáticamente antes de retornar
+      await ejecutarPasosAutomaticamente(nuevosPasos.pasos || []);
+      
+      // Filtrar: solo retornar pasos de tipo "hablar" al agente
+      const pasosParaAgente = (nuevosPasos.pasos || []).filter(p => p.tipo === 'hablar');
+      
       return {
         ok: true,
-        pasos: nuevosPasos.pasos || [],
+        pasos: pasosParaAgente,
         contexto: nuevosPasos.contexto || {
           etapa: estadoExamen.etapa,
           subEtapa: estadoExamen.subEtapa
@@ -1048,9 +1167,15 @@ export function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgu
     }
   }
   
+  // Ejecutar pasos automáticamente (foróptero, TV, esperar)
+  await ejecutarPasosAutomaticamente(pasos.pasos || []);
+  
+  // Filtrar: solo retornar pasos de tipo "hablar" al agente
+  const pasosParaAgente = (pasos.pasos || []).filter(p => p.tipo === 'hablar');
+  
   return {
     ok: true,
-    pasos: pasos.pasos || [],
+    pasos: pasosParaAgente,
     contexto: pasos.contexto || {
       etapa: estadoExamen.etapa,
       subEtapa: estadoExamen.subEtapa
