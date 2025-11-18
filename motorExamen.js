@@ -210,7 +210,14 @@ export function procesarRespuesta(respuestaPaciente) {
       return { ok: true };
     
     case 'ETAPA_3':
-      // Etapa 3 no procesa respuestas, solo configura el foróptero
+      // Etapa 3: después de configurar el foróptero, cualquier respuesta del paciente
+      // significa que está listo, pasar a ETAPA_4
+      if (estadoExamen.subEtapa === 'FOROPTERO_CONFIGURADO') {
+        estadoExamen.etapa = 'ETAPA_4';
+        estadoExamen.ojoActual = 'R';
+        estadoExamen.subEtapa = 'AGUDEZA_R';
+        console.log('✅ Foróptero configurado, pasando a ETAPA_4');
+      }
       return { ok: true };
     
     default:
@@ -410,17 +417,36 @@ function generarPasosEtapa2() {
  * Genera pasos para ETAPA_3 (preparación del foróptero)
  */
 function generarPasosEtapa3() {
+  // Verificar si ya se generaron los pasos de ETAPA_3
+  // Si ya se generaron, no volver a generarlos (evitar loop)
+  if (estadoExamen.subEtapa === 'FOROPTERO_CONFIGURADO') {
+    // Ya se configuró el foróptero, pasar a ETAPA_4
+    estadoExamen.etapa = 'ETAPA_4';
+    estadoExamen.ojoActual = 'R';
+    estadoExamen.subEtapa = 'AGUDEZA_R';
+    
+    // Retornar pasos vacíos para que el agente espere respuesta
+    // (ETAPA_4 se implementará en Fase 3)
+    return {
+      ok: true,
+      pasos: [],
+      contexto: {
+        etapa: 'ETAPA_4',
+        subEtapa: 'AGUDEZA_R'
+      }
+    };
+  }
+  
   // Usar valores recalculados para configurar el foróptero
   const valoresR = estadoExamen.valoresRecalculados.R;
   const valoresL = estadoExamen.valoresRecalculados.L;
   
   // Configuración inicial:
   // - Ojo derecho (R): valores recalculados, oclusión: "open"
-  // - Ojo izquierdo (L): valores recalculados, oclusión: "close"
+  // - Ojo izquierdo (L): oclusión: "close"
   
-  // Pasar a ETAPA_4 después de ejecutar estos pasos
-  estadoExamen.etapa = 'ETAPA_4';
-  estadoExamen.ojoActual = 'R'; // Comenzar con ojo derecho
+  // Marcar que se generaron los pasos (para evitar regenerarlos)
+  estadoExamen.subEtapa = 'FOROPTERO_CONFIGURADO';
   
   return {
     ok: true,
@@ -452,8 +478,8 @@ function generarPasosEtapa3() {
       }
     ],
     contexto: {
-      etapa: 'ETAPA_4',
-      subEtapa: 'AGUDEZA_R'
+      etapa: 'ETAPA_3',
+      subEtapa: 'FOROPTERO_CONFIGURADO'
     }
   };
 }
