@@ -205,7 +205,12 @@ export function procesarRespuesta(respuestaPaciente) {
       return procesarRespuestaEtapa1(respuestaPaciente);
     
     case 'ETAPA_2':
-      // Etapa 2 es silenciosa, no procesa respuestas
+      // Etapa 2 es silenciosa, no procesa respuestas del paciente
+      // El recálculo se hace automáticamente en generarPasos()
+      return { ok: true };
+    
+    case 'ETAPA_3':
+      // Etapa 3 no procesa respuestas, solo configura el foróptero
       return { ok: true };
     
     default:
@@ -262,6 +267,13 @@ export function generarPasos() {
     case 'ETAPA_3':
       return generarPasosEtapa3();
     
+    case 'ETAPA_4':
+      // Se implementará en Fase 3
+      return {
+        ok: false,
+        error: `Etapa ${estadoExamen.etapa} no implementada aún`
+      };
+    
     default:
       return {
         ok: false,
@@ -299,7 +311,7 @@ function generarPasosEtapa1() {
   // Si ya hay valores guardados, significa que se validaron correctamente
   // y ya se pasó a ETAPA_2, así que no deberíamos estar aquí
   if (estadoExamen.valoresIniciales.R.esfera !== null) {
-    // Ya se procesaron los valores, generar pasos de confirmación
+    // Ya se procesaron los valores, generar pasos de confirmación breve
     return {
       ok: true,
       pasos: [
@@ -326,33 +338,178 @@ function generarPasosEtapa1() {
 }
 
 /**
+ * Genera pasos para ETAPA_3 (preparación del foróptero)
+ */
+function generarPasosEtapa3() {
+  // Usar valores recalculados para configurar el foróptero
+  const valoresR = estadoExamen.valoresRecalculados.R;
+  const valoresL = estadoExamen.valoresRecalculados.L;
+  
+  // Configuración inicial:
+  // - R: abierto (open) con valores recalculados
+  // - L: cerrado (close)
+  const configForoptero = {
+    R: {
+      esfera: valoresR.esfera,
+      cilindro: valoresR.cilindro,
+      angulo: valoresR.angulo,
+      occlusion: 'open'
+    },
+    L: {
+      occlusion: 'close'
+    }
+  };
+  
+  // Pasar a ETAPA_4 después de ejecutar estos pasos
+  estadoExamen.etapa = 'ETAPA_4';
+  estadoExamen.ojoActual = 'R'; // Comenzamos con ojo derecho
+  
+  console.log('✅ Configuración foróptero ETAPA_3:', configForoptero);
+  
+  return {
+    ok: true,
+    pasos: [
+      {
+        tipo: 'foroptero',
+        orden: 1,
+        foroptero: configForoptero
+      },
+      {
+        tipo: 'esperar',
+        orden: 2,
+        esperarSegundos: 2
+      },
+      {
+        tipo: 'hablar',
+        orden: 3,
+        mensaje: 'Vamos a empezar con este ojo. Mirá la pantalla.'
+      }
+    ],
+    contexto: {
+      etapa: 'ETAPA_4',
+      subEtapa: 'AGUDEZA_R'
+    }
+  };
+}
+
+/**
+ * Aplica las reglas de recálculo cilíndrico según protocolo clínico
+ * @param {number} cilindro - Valor cilíndrico original
+ * @returns {number} - Valor cilíndrico recalculado
+ */
+export function aplicarRecalculoCilindrico(cilindro) {
+  // Reglas de ajuste:
+  // - Cilindro entre -0.50 y -2.00 → sumar +0.50 (menos negativo)
+  // - Entre -2.25 y -4.00 → sumar +0.75
+  // - Entre -4.25 y -6.00 → sumar +1.50
+  // - Si es 0 o -0.25 → mantener igual
+  // - Si es menor a -6.00 → no modificar
+  
+  if (cilindro === 0 || cilindro === -0.25) {
+    return cilindro; // Mantener igual
+  }
+  
+  if (cilindro < -6.00) {
+    return cilindro; // No modificar
+  }
+  
+  if (cilindro >= -0.50 && cilindro <= -2.00) {
+    return cilindro + 0.50; // Sumar +0.50
+  }
+  
+  if (cilindro >= -2.25 && cilindro <= -4.00) {
+    return cilindro + 0.75; // Sumar +0.75
+  }
+  
+  if (cilindro >= -4.25 && cilindro <= -6.00) {
+    return cilindro + 1.50; // Sumar +1.50
+  }
+  
+  // Para valores fuera de los rangos definidos, mantener igual
+  return cilindro;
+}
+
+/**
  * Genera pasos para ETAPA_2 (cálculo silencioso)
  * Esta etapa no genera pasos visibles, solo procesa internamente
  */
 function generarPasosEtapa2() {
-  // Aplicar recálculo cilíndrico (se implementará en Fase 2)
-  // Por ahora, solo copiamos los valores
+  // Aplicar recálculo cilíndrico a ambos ojos
+  const valoresR = { ...estadoExamen.valoresIniciales.R };
+  const valoresL = { ...estadoExamen.valoresIniciales.L };
+  
+  valoresR.cilindro = aplicarRecalculoCilindrico(valoresR.cilindro);
+  valoresL.cilindro = aplicarRecalculoCilindrico(valoresL.cilindro);
+  
+  // Guardar valores recalculados
   estadoExamen.valoresRecalculados = {
-    R: { ...estadoExamen.valoresIniciales.R },
-    L: { ...estadoExamen.valoresIniciales.L }
+    R: valoresR,
+    L: valoresL
   };
   
   // Pasar a ETAPA_3
   estadoExamen.etapa = 'ETAPA_3';
   
-  console.log('✅ Valores recalculados (placeholder):', estadoExamen.valoresRecalculados);
+  console.log('✅ Valores recalculados:', {
+    iniciales: estadoExamen.valoresIniciales,
+    recalculados: estadoExamen.valoresRecalculados
+  });
   
-  // Generar pasos para ETAPA_3 (se implementará en Fase 2)
-  // Por ahora, retornar pasos vacíos (sin mensaje)
+  // Esta etapa es silenciosa, no genera pasos visibles
+  // La transición a ETAPA_3 se hace automáticamente
+  // Generar pasos de ETAPA_3 inmediatamente
+  return generarPasosEtapa3();
+}
+
+/**
+ * Genera pasos para ETAPA_3 (preparación del foróptero)
+ */
+function generarPasosEtapa3() {
+  // Usar valores recalculados para configurar el foróptero
+  const valoresR = estadoExamen.valoresRecalculados.R;
+  const valoresL = estadoExamen.valoresRecalculados.L;
+  
+  // Configuración inicial:
+  // - Ojo derecho (R): valores recalculados, oclusión: "open"
+  // - Ojo izquierdo (L): valores recalculados, oclusión: "close"
+  
+  // Pasar a ETAPA_4 después de ejecutar estos pasos
+  estadoExamen.etapa = 'ETAPA_4';
+  estadoExamen.ojoActual = 'R'; // Comenzar con ojo derecho
+  
   return {
     ok: true,
     pasos: [
       {
-        tipo: 'hablar',
+        tipo: 'foroptero',
         orden: 1,
-        mensaje: 'Preparando el examen...'
+        foroptero: {
+          R: {
+            esfera: valoresR.esfera,
+            cilindro: valoresR.cilindro,
+            angulo: valoresR.angulo,
+            occlusion: 'open'
+          },
+          L: {
+            occlusion: 'close'
+          }
+        }
+      },
+      {
+        tipo: 'esperar',
+        orden: 2,
+        esperarSegundos: 2
+      },
+      {
+        tipo: 'hablar',
+        orden: 3,
+        mensaje: 'Vamos a empezar con este ojo.'
       }
-    ]
+    ],
+    contexto: {
+      etapa: 'ETAPA_4',
+      subEtapa: 'AGUDEZA_R'
+    }
   };
 }
 
@@ -390,6 +547,23 @@ export function obtenerInstrucciones(respuestaPaciente = null) {
   
   if (!pasos.ok) {
     return pasos;
+  }
+  
+  // Si la etapa generó pasos vacíos (como ETAPA_2 silenciosa),
+  // generar pasos de la siguiente etapa automáticamente
+  if (pasos.pasos && pasos.pasos.length === 0) {
+    // La etapa cambió internamente, generar pasos de la nueva etapa
+    const nuevosPasos = generarPasos();
+    if (nuevosPasos.ok) {
+      return {
+        ok: true,
+        pasos: nuevosPasos.pasos || [],
+        contexto: nuevosPasos.contexto || {
+          etapa: estadoExamen.etapa,
+          subEtapa: estadoExamen.subEtapa
+        }
+      };
+    }
   }
   
   return {
@@ -437,9 +611,11 @@ function obtenerUltimaAccion() {
     case 'ETAPA_1':
       return 'Esperando valores del autorefractómetro';
     case 'ETAPA_2':
-      return 'Calculando valores iniciales';
+      return 'Calculando valores iniciales (silencioso)';
     case 'ETAPA_3':
-      return 'Preparando examen visual';
+      return 'Preparando examen visual - ajustando foróptero';
+    case 'ETAPA_4':
+      return 'Test de agudeza visual';
     default:
       return `En etapa ${estadoExamen.etapa}`;
   }
