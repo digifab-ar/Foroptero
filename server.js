@@ -5,11 +5,12 @@ import {
   inicializarExamen,
   obtenerInstrucciones,
   obtenerEstado,
+  obtenerDetalleExamen,
   inicializarEjecutores
 } from "./motorExamen.js";
 
 // ============================================================
-// CONFIGURACIÓN GENERAL 
+// CONFIGURACIÓN GENERAL
 // ============================================================
 const app = express();
 app.use(cors());
@@ -21,7 +22,7 @@ const PORT = process.env.PORT || 3000;
 const MQTT_SERVER = "mqtt://broker.hivemq.com";
 
 // Tópicos específicos
-const MQTT_TOPIC_CMD = "foroptero01/cmd";       // comandos al ESP32 
+const MQTT_TOPIC_CMD = "foroptero01/cmd";       // comandos al ESP32
 const MQTT_TOPIC_STATE = "foroptero01/state";   // estado publicado por el ESP32
 const MQTT_TOPIC_PANTALLA = "foroptero01/pantalla"; // comandos a la pantalla
 
@@ -330,6 +331,20 @@ app.get("/api/examen/estado", (req, res) => {
     res.status(500).json({
       ok: false,
       error: error.message || "Error al obtener estado"
+    });
+  }
+});
+
+// GET /api/examen/detalle - Consultar detalle completo del examen
+app.get("/api/examen/detalle", (req, res) => {
+  try {
+    const resultado = obtenerDetalleExamen();
+    res.json(resultado);
+  } catch (error) {
+    console.error("❌ Error obteniendo detalle del examen:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Error al obtener detalle del examen"
     });
   }
 });
