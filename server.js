@@ -224,6 +224,14 @@ export async function ejecutarComandoForopteroInterno(config) {
 }
 
 /**
+ * Obtiene el estado actual del foróptero
+ * @returns {object} - Estado del foróptero { status: 'ready' | 'busy' | 'offline', ... }
+ */
+export function obtenerEstadoForoptero() {
+  return { ...ultimoEstado };
+}
+
+/**
  * Ejecuta comando de TV internamente (sin endpoint HTTP)
  * @param {object} config - Configuración { letra: string, logmar: number }
  * @returns {Promise<object>} - Resultado de la ejecución
@@ -298,13 +306,14 @@ app.post("/api/examen/nuevo", (req, res) => {
 // POST /api/examen/instrucciones - Obtener pasos a ejecutar
 app.post("/api/examen/instrucciones", async (req, res) => {
   try {
-    const { respuestaPaciente, interpretacionAgudeza } = req.body;
+    const { respuestaPaciente, interpretacionAgudeza, interpretacionComparacion } = req.body;
     
-    // Si hay interpretación de agudeza, pasarla al procesamiento
+    // Si hay interpretación de agudeza o comparación, pasarla al procesamiento
     // Nota: obtenerInstrucciones ahora es async y ejecuta comandos automáticamente
     const resultado = await obtenerInstrucciones(
       respuestaPaciente || null,
-      interpretacionAgudeza || null
+      interpretacionAgudeza || null,
+      interpretacionComparacion || null
     );
     
     if (!resultado.ok) {
@@ -386,7 +395,8 @@ app.listen(PORT, () => {
   // Inicializar ejecutores internos en motorExamen.js
   inicializarEjecutores(
     ejecutarComandoForopteroInterno,
-    ejecutarComandoTVInterno
+    ejecutarComandoTVInterno,
+    obtenerEstadoForoptero
   );
   
   // Inicializar verificación periódica de heartbeat
