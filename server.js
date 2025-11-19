@@ -9,7 +9,7 @@ import {
 } from "./motorExamen.js";
 
 // ============================================================
-// CONFIGURACIÓN GENERAL
+// CONFIGURACIÓN GENERAL 
 // ============================================================
 const app = express();
 app.use(cors());
