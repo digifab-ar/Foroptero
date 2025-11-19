@@ -12,14 +12,16 @@
 // Nota: Estas funciones se importarán dinámicamente para evitar dependencia circular
 let ejecutarComandoForopteroInterno = null;
 let ejecutarComandoTVInterno = null;
+let obtenerEstadoForoptero = null;
 
 /**
  * Inicializa las funciones de ejecución interna
  * Se debe llamar desde server.js después de crear las funciones
  */
-export function inicializarEjecutores(foropteroFn, tvFn) {
+export function inicializarEjecutores(foropteroFn, tvFn, estadoForopteroFn) {
   ejecutarComandoForopteroInterno = foropteroFn;
   ejecutarComandoTVInterno = tvFn;
+  obtenerEstadoForoptero = estadoForopteroFn;
   console.log('✅ Ejecutores internos inicializados');
 }
 
@@ -65,15 +67,33 @@ let estadoExamen = {
     }
   },
   
-  // Estado de comparación (para tests de lentes)
+  // Estado de comparación (para tests de lentes) - Estrategia de 3 valores
   comparacionActual: {
-    tipo: null,
-    ojo: null,
-    lente1: null,
-    lente2: null,
-    primeraEleccion: null,
-    segundaEleccion: null,
-    valorBase: null
+    tipo: null,              // 'esferico_grueso', 'esferico_fino', etc.
+    ojo: null,              // 'R' | 'L'
+    valorBase: null,        // Valor base del test (ej: +0.75)
+    
+    // Navegación adaptativa
+    valorActual: null,      // Valor que está mostrándose actualmente (ej: +1.25)
+    valorAnterior: null,    // Último valor mostrado antes del actual (ej: +0.75)
+    valorConfirmado: null,  // Valor que se está confirmando (ej: +0.75)
+    confirmaciones: 0,      // Número de confirmaciones (0, 1, 2)
+    direccion: null,        // 'subiendo' | 'bajando' | null
+    
+    // Estado de la secuencia
+    faseComparacion: null,  // 'iniciando' | 'mostrando_alternativo' | 'preguntando' | 'confirmando' | 'navegando'
+    letraActual: null,      // Letra que se está mostrando en la TV
+    logmarActual: null,     // LogMAR de la letra actual
+    
+    // Saltos y valores pre-calculados (para estrategia de 3 valores)
+    saltoActual: null,      // Salto actual (ej: 0.50 para esférico grueso, 0.25 para fino)
+    valorMas: null,         // Valor base + salto (ej: +1.25 si base es +0.75)
+    valorMenos: null,       // Valor base - salto (ej: +0.25 si base es +0.75)
+    valoresProbados: {      // Rastrear qué valores ya probamos
+      mas: false,           // ¿Ya probamos +salto?
+      menos: false,         // ¿Ya probamos -salto?
+      base: false          // ¿Ya confirmamos base?
+    }
   },
   
   // Estado de agudeza (para navegación logMAR)
@@ -157,11 +177,23 @@ export function inicializarExamen() {
     comparacionActual: {
       tipo: null,
       ojo: null,
-      lente1: null,
-      lente2: null,
-      primeraEleccion: null,
-      segundaEleccion: null,
-      valorBase: null
+      valorBase: null,
+      valorActual: null,
+      valorAnterior: null,
+      valorConfirmado: null,
+      confirmaciones: 0,
+      direccion: null,
+      faseComparacion: null,
+      letraActual: null,
+      logmarActual: null,
+      saltoActual: null,
+      valorMas: null,
+      valorMenos: null,
+      valoresProbados: {
+        mas: false,
+        menos: false,
+        base: false
+      }
     },
     agudezaEstado: {
       ojo: null,
@@ -291,6 +323,11 @@ export function procesarRespuesta(respuestaPaciente) {
       // Este case no se debería ejecutar, pero por seguridad retornamos ok
       return { ok: true };
     
+    case 'ETAPA_5':
+      // ETAPA_5 se procesa directamente en obtenerInstrucciones() con interpretacionComparacion
+      // Este case no se debería ejecutar, pero por seguridad retornamos ok
+      return { ok: true };
+    
     default:
       return { ok: false, error: `Etapa ${estadoExamen.etapa} no implementada aún` };
   }
@@ -347,6 +384,9 @@ export function generarPasos() {
     
     case 'ETAPA_4':
       return generarPasosEtapa4();
+    
+    case 'ETAPA_5':
+      return generarPasosEtapa5();
     
     default:
       return {
@@ -983,7 +1023,7 @@ async function ejecutarPasosAutomaticamente(pasos) {
   }
   
   const pasosAEjecutar = pasos.filter(p => 
-    p.tipo === 'foroptero' || p.tipo === 'tv' || p.tipo === 'esperar'
+    p.tipo === 'foroptero' || p.tipo === 'tv' || p.tipo === 'esperar' || p.tipo === 'esperar_foroptero'
   );
   
   if (pasosAEjecutar.length === 0) {
@@ -1010,6 +1050,15 @@ async function ejecutarPasosAutomaticamente(pasos) {
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } else if (paso.tipo === 'tv') {
+        // Antes de mostrar TV, verificar que el foróptero esté ready
+        if (obtenerEstadoForoptero) {
+          const estadoForoptero = obtenerEstadoForoptero();
+          if (estadoForoptero.status !== 'ready') {
+            console.log('⏳ Foróptero no está ready, esperando...');
+            await esperarForopteroReady(10000, 200);
+          }
+        }
+        
         if (!ejecutarComandoTVInterno) {
           console.warn('⚠️ ejecutarComandoTVInterno no inicializado');
           continue;
@@ -1029,6 +1078,12 @@ async function ejecutarPasosAutomaticamente(pasos) {
         console.log(`⏳ Esperando ${segundos} segundos...`);
         await new Promise(resolve => setTimeout(resolve, segundos * 1000));
         ejecutados.push({ tipo: 'esperar', segundos });
+      } else if (paso.tipo === 'esperar_foroptero') {
+        // Esperar a que el foróptero esté "ready"
+        console.log('⏳ Esperando a que el foróptero esté ready...');
+        const resultado = await esperarForopteroReady(10000, 200);
+        ejecutados.push({ tipo: 'esperar_foroptero', resultado });
+        console.log('✅ Estado del foróptero:', resultado);
       }
     } catch (error) {
       console.error(`❌ Error ejecutando paso ${paso.tipo}:`, error);
@@ -1052,9 +1107,79 @@ async function ejecutarPasosAutomaticamente(pasos) {
  * @param {string|null} respuestaPaciente - Respuesta del paciente
  * @param {object|null} interpretacionAgudeza - Interpretación estructurada del agente (para ETAPA_4)
  */
-export async function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgudeza = null) {
+export async function obtenerInstrucciones(respuestaPaciente = null, interpretacionAgudeza = null, interpretacionComparacion = null) {
   // Si hay respuesta del paciente, procesarla primero
   if (respuestaPaciente) {
+    // Si estamos en ETAPA_5 y hay interpretación de comparación, procesarla
+    if (estadoExamen.etapa === 'ETAPA_5' && interpretacionComparacion) {
+      const resultado = procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionComparacion);
+      
+      if (!resultado.ok) {
+        return {
+          ok: false,
+          error: resultado.error || 'Error procesando respuesta de comparación'
+        };
+      }
+      
+      // Si se confirmó el resultado, generar pasos del siguiente test
+      if (resultado.resultadoConfirmado) {
+        // Generar pasos del siguiente test
+        const pasos = generarPasos();
+        
+        // Ejecutar pasos automáticamente
+        await ejecutarPasosAutomaticamente(pasos.pasos || []);
+        
+        // Filtrar: solo retornar pasos de tipo "hablar"
+        const pasosParaAgente = (pasos.pasos || []).filter(p => p.tipo === 'hablar');
+        
+        return {
+          ok: true,
+          pasos: pasosParaAgente,
+          contexto: pasos.contexto || {
+            etapa: estadoExamen.etapa,
+            testActual: estadoExamen.secuenciaExamen.testActual
+          }
+        };
+      }
+      
+      // Si necesita mostrar otro lente, generar pasos
+      if (resultado.necesitaMostrarLente) {
+        const estado = estadoExamen.comparacionActual;
+        const pasosMostrar = generarPasosMostrarLente(
+          estado.ojo,
+          resultado.valorAMostrar,
+          estado.letraActual,
+          estado.logmarActual
+        );
+        
+        // Actualizar estado
+        estado.valorAnterior = estado.valorActual;
+        estado.valorActual = resultado.valorAMostrar;
+        estado.faseComparacion = 'mostrando_alternativo';
+        
+        // Ejecutar pasos automáticamente
+        await ejecutarPasosAutomaticamente(pasosMostrar);
+        
+        // Generar pasos de pregunta
+        const pasos = generarPasosEtapa5();
+        
+        // Ejecutar pasos automáticamente (si hay más)
+        await ejecutarPasosAutomaticamente(pasos.pasos || []);
+        
+        // Filtrar: solo retornar pasos de tipo "hablar"
+        const pasosParaAgente = (pasos.pasos || []).filter(p => p.tipo === 'hablar');
+        
+        return {
+          ok: true,
+          pasos: pasosParaAgente,
+          contexto: pasos.contexto || {
+            etapa: estadoExamen.etapa,
+            testActual: estadoExamen.secuenciaExamen.testActual
+          }
+        };
+      }
+    }
+    
     // Si estamos en ETAPA_4 y hay interpretación, usar procesarRespuestaAgudeza directamente
     if (estadoExamen.etapa === 'ETAPA_4' && interpretacionAgudeza) {
       const resultado = procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza);
@@ -1226,6 +1351,8 @@ function obtenerUltimaAccion() {
       return 'Preparando examen visual - ajustando foróptero';
     case 'ETAPA_4':
       return 'Test de agudeza visual';
+    case 'ETAPA_5':
+      return 'Test de comparación de lentes';
     default:
       return `En etapa ${estadoExamen.etapa}`;
   }
@@ -1271,6 +1398,491 @@ function obtenerResultadoTest(tipo, ojo) {
   if (!campoResultado) return null;
   
   return estadoExamen.secuenciaExamen.resultados[ojo]?.[campoResultado] ?? null;
+}
+
+/**
+ * Espera a que el foróptero esté en estado "ready"
+ * @param {number} timeoutMs - Tiempo máximo de espera en ms (default: 10000)
+ * @param {number} intervaloMs - Intervalo de verificación en ms (default: 200)
+ * @returns {Promise<object>} - { ok: boolean, status: string, tiempoEsperado: number }
+ */
+async function esperarForopteroReady(timeoutMs = 10000, intervaloMs = 200) {
+  if (!obtenerEstadoForoptero) {
+    console.warn('⚠️ obtenerEstadoForoptero no inicializado, continuando...');
+    return { ok: true, status: 'unknown', tiempoEsperado: 0 };
+  }
+  
+  const inicio = Date.now();
+  const timeout = inicio + timeoutMs;
+  
+  while (Date.now() < timeout) {
+    const estado = obtenerEstadoForoptero();
+    
+    if (estado.status === 'ready') {
+      const tiempoEsperado = Date.now() - inicio;
+      console.log(`✅ Foróptero ready después de ${tiempoEsperado}ms`);
+      return { ok: true, status: 'ready', tiempoEsperado };
+    }
+    
+    // Esperar antes de verificar de nuevo
+    await new Promise(resolve => setTimeout(resolve, intervaloMs));
+  }
+  
+  // Timeout alcanzado
+  const tiempoEsperado = Date.now() - inicio;
+  const estadoFinal = obtenerEstadoForoptero();
+  console.warn(`⚠️ Timeout esperando foróptero (${tiempoEsperado}ms), estado actual: ${estadoFinal.status}, continuando...`);
+  return { ok: false, status: estadoFinal.status || 'timeout', tiempoEsperado };
+}
+
+/**
+ * Inicializa el estado de comparación de lentes para un test específico
+ * @param {string} tipo - Tipo de test: 'esferico_grueso', 'esferico_fino', etc.
+ * @param {string} ojo - Ojo a testear: 'R' | 'L'
+ * @param {number} valorBase - Valor base del test (ej: +0.75)
+ * @returns {object} - Resultado de la inicialización
+ */
+function iniciarComparacionLentes(tipo, ojo, valorBase) {
+  // Validar tipo (solo esférico grueso para FASE 4)
+  if (tipo !== 'esferico_grueso') {
+    return { ok: false, error: `Tipo de test ${tipo} no implementado aún` };
+  }
+  
+  // Validar límites de valores (esfera típicamente -6.00 a +6.00)
+  if (valorBase < -6.00 || valorBase > 6.00) {
+    return { ok: false, error: `Valor base ${valorBase} fuera de rango válido (-6.00 a +6.00)` };
+  }
+  
+  // Calcular valores pre-calculados según tipo
+  let saltoActual = 0.50; // Para esférico grueso
+  let valorMas = valorBase + saltoActual;
+  let valorMenos = valorBase - saltoActual;
+  
+  // Validar que los valores calculados no excedan límites
+  if (valorMas > 6.00) {
+    valorMas = 6.00;
+    saltoActual = valorMas - valorBase;
+  }
+  if (valorMenos < -6.00) {
+    valorMenos = -6.00;
+    saltoActual = valorBase - valorMenos;
+  }
+  
+  // Obtener letra y logMAR actuales (del test de agudeza)
+  const agudeza = estadoExamen.agudezaVisual[ojo];
+  const letraActual = agudeza?.letra || 'H';
+  const logmarActual = agudeza?.logmar || 0.4;
+  
+  // Inicializar estado de comparación
+  estadoExamen.comparacionActual = {
+    tipo,
+    ojo,
+    valorBase,
+    valorActual: valorBase, // Inicialmente el valor base
+    valorAnterior: null,
+    valorConfirmado: null,
+    confirmaciones: 0,
+    direccion: null,
+    faseComparacion: 'iniciando',
+    letraActual,
+    logmarActual,
+    saltoActual,
+    valorMas,
+    valorMenos,
+    valoresProbados: {
+      mas: false,
+      menos: false,
+      base: false
+    }
+  };
+  
+  console.log(`🔍 Iniciando comparación de lentes (${tipo}, ${ojo}):`, {
+    valorBase,
+    valorMas,
+    valorMenos,
+    saltoActual
+  });
+  
+  return { ok: true, comparacionIniciada: true };
+}
+
+/**
+ * Genera pasos para mostrar un lente específico en el foróptero
+ * @param {string} ojo - Ojo a configurar: 'R' | 'L'
+ * @param {number} valorEsfera - Valor de esfera a mostrar
+ * @param {string} letra - Letra a mostrar en TV
+ * @param {number} logmar - LogMAR de la letra
+ * @returns {Array} - Array de pasos
+ */
+function generarPasosMostrarLente(ojo, valorEsfera, letra, logmar) {
+  const pasos = [];
+  
+  // 1. Configurar foróptero con el nuevo valor
+  const configForoptero = {
+    [ojo]: {
+      esfera: valorEsfera,
+      // Mantener cilindro y ángulo del valor recalculado
+      cilindro: estadoExamen.valoresRecalculados[ojo].cilindro,
+      angulo: estadoExamen.valoresRecalculados[ojo].angulo,
+      occlusion: 'open'
+    },
+    // Ojo opuesto cerrado
+    [ojo === 'R' ? 'L' : 'R']: {
+      occlusion: 'close'
+    }
+  };
+  
+  pasos.push({
+    tipo: 'foroptero',
+    orden: 1,
+    foroptero: configForoptero
+  });
+  
+  // 2. Esperar a que el foróptero esté ready
+  pasos.push({
+    tipo: 'esperar_foroptero',
+    orden: 2
+  });
+  
+  // 3. Mostrar letra en TV
+  pasos.push({
+    tipo: 'tv',
+    orden: 3,
+    letra,
+    logmar
+  });
+  
+  return pasos;
+}
+
+/**
+ * Genera pasos para ETAPA_5 (tests de lentes - esférico grueso)
+ */
+function generarPasosEtapa5() {
+  const testActual = estadoExamen.secuenciaExamen.testActual;
+  
+  // Validar que estamos en test de lentes
+  if (!testActual || testActual.tipo !== 'esferico_grueso') {
+    return {
+      ok: false,
+      error: 'No estamos en test de esférico grueso'
+    };
+  }
+  
+  const ojo = testActual.ojo;
+  const comparacion = estadoExamen.comparacionActual;
+  
+  // Si no hay comparación iniciada, inicializarla
+  if (!comparacion.tipo || comparacion.ojo !== ojo) {
+    // Obtener valor base del test de agudeza (ya está en el foróptero)
+    const agudeza = estadoExamen.agudezaVisual[ojo];
+    if (!agudeza || !agudeza.confirmado) {
+      return {
+        ok: false,
+        error: 'Debe completarse el test de agudeza visual antes de comparar lentes'
+      };
+    }
+    
+    // El valor base es el valor recalculado de esfera para este ojo
+    const valorBase = estadoExamen.valoresRecalculados[ojo].esfera;
+    
+    const resultado = iniciarComparacionLentes('esferico_grueso', ojo, valorBase);
+    if (!resultado.ok) {
+      return resultado;
+    }
+  }
+  
+  const estado = estadoExamen.comparacionActual;
+  const pasos = [];
+  
+  // Generar pasos según la fase de comparación
+  if (estado.faseComparacion === 'iniciando') {
+    // Fase inicial: mensaje introductorio + mostrar valorMas
+    pasos.push({
+      tipo: 'hablar',
+      orden: 1,
+      mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
+    });
+    
+    // Generar pasos para mostrar valorMas
+    const pasosMostrar = generarPasosMostrarLente(
+      ojo,
+      estado.valorMas,
+      estado.letraActual,
+      estado.logmarActual
+    );
+    pasos.push(...pasosMostrar.map((p, i) => ({ ...p, orden: i + 2 })));
+    
+    // Actualizar estado
+    estado.valorActual = estado.valorMas;
+    estado.valorAnterior = estado.valorBase;
+    estado.valoresProbados.mas = true;
+    estado.faseComparacion = 'preguntando';
+    
+  } else if (estado.faseComparacion === 'mostrando_alternativo') {
+    // Ya se mostró un alternativo, preguntar preferencia
+    pasos.push({
+      tipo: 'hablar',
+      orden: 1,
+      mensaje: 'Ves mejor con este o con el anterior?'
+    });
+    
+    estado.faseComparacion = 'preguntando';
+    
+  } else if (estado.faseComparacion === 'preguntando') {
+    // Esperando respuesta, no generar pasos
+    return {
+      ok: true,
+      pasos: [],
+      contexto: {
+        etapa: 'ETAPA_5',
+        testActual,
+        comparacionEstado: {
+          faseComparacion: estado.faseComparacion,
+          valorActual: estado.valorActual,
+          valorAnterior: estado.valorAnterior,
+          confirmaciones: estado.confirmaciones
+        }
+      }
+    };
+  }
+  
+  return {
+    ok: true,
+    pasos,
+    contexto: {
+      etapa: 'ETAPA_5',
+      testActual,
+      comparacionEstado: {
+        faseComparacion: estado.faseComparacion,
+        valorActual: estado.valorActual,
+        valorAnterior: estado.valorAnterior,
+        confirmaciones: estado.confirmaciones
+      }
+    }
+  };
+}
+
+/**
+ * Interpreta la preferencia del paciente sobre los lentes
+ * @param {string} respuestaPaciente - Respuesta del paciente (texto crudo)
+ * @param {object} interpretacionComparacion - Interpretación estructurada del agente
+ * @returns {string|null} - 'anterior' | 'actual' | 'igual' | null
+ */
+function interpretarPreferenciaLente(respuestaPaciente, interpretacionComparacion) {
+  // Prioridad: usar interpretación estructurada del agente (100% confianza)
+  if (interpretacionComparacion?.preferencia) {
+    const pref = interpretacionComparacion.preferencia;
+    if (['anterior', 'actual', 'igual'].includes(pref)) {
+      return pref;
+    }
+  }
+  
+  // Fallback: interpretar texto (aunque debería venir estructurado)
+  const texto = (respuestaPaciente || '').toLowerCase();
+  
+  if (texto.includes('anterior') || texto.includes('otro') || texto.includes('otra')) {
+    return 'anterior';
+  }
+  
+  if (texto.includes('este') || texto.includes('esta') || texto.includes('con este')) {
+    return 'actual';
+  }
+  
+  if (texto.includes('igual') || texto.includes('iguales')) {
+    return 'igual';
+  }
+  
+  return null;
+}
+
+/**
+ * Procesa la respuesta del paciente en la comparación de lentes
+ * @param {string} respuestaPaciente - Respuesta del paciente (texto crudo)
+ * @param {object} interpretacionComparacion - Interpretación estructurada del agente
+ * @returns {object} - Resultado del procesamiento
+ */
+function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionComparacion) {
+  const estado = estadoExamen.comparacionActual;
+  const testActual = estadoExamen.secuenciaExamen.testActual;
+  
+  // Validar que estamos en comparación de lentes
+  if (!estado.tipo || !testActual || testActual.tipo !== 'esferico_grueso') {
+    return { ok: false, error: 'No estamos en comparación de lentes' };
+  }
+  
+  // Interpretar preferencia
+  const preferencia = interpretarPreferenciaLente(respuestaPaciente, interpretacionComparacion);
+  
+  if (!preferencia) {
+    return { ok: false, error: 'No se pudo interpretar la preferencia del paciente' };
+  }
+  
+  console.log(`📊 Procesando respuesta comparación (${estado.ojo}):`, {
+    respuestaPaciente,
+    preferencia,
+    valorActual: estado.valorActual,
+    valorAnterior: estado.valorAnterior,
+    valorBase: estado.valorBase,
+    confirmaciones: estado.confirmaciones
+  });
+  
+  // Procesar según preferencia y fase
+  if (preferencia === 'anterior') {
+    // Eligió el lente anterior
+    if (estado.valorActual === estado.valorMas) {
+      // Estaba mostrando +salto, eligió base
+      estado.valorConfirmado = estado.valorBase;
+      estado.confirmaciones = 1;
+      estado.valorAnterior = estado.valorBase;
+      estado.faseComparacion = 'mostrando_alternativo';
+      
+      // Generar pasos para mostrar valorMenos
+      return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorMenos };
+      
+    } else if (estado.valorActual === estado.valorMenos) {
+      // Estaba mostrando -salto, eligió base (segunda confirmación)
+      estado.valorConfirmado = estado.valorBase;
+      estado.confirmaciones = 2;
+      estado.faseComparacion = 'confirmado';
+      
+      // Confirmar resultado
+      return confirmarResultado(estado.valorBase);
+      
+    } else if (estado.valorActual === estado.valorBase) {
+      // Estaba mostrando base, eligió el anterior (que era el alternativo)
+      // Esto significa que el alternativo es mejor
+      if (estado.valorAnterior === estado.valorMas) {
+        // El anterior era +salto, confirmar +salto
+        estado.valorConfirmado = estado.valorMas;
+        estado.confirmaciones = 1;
+        estado.faseComparacion = 'mostrando_alternativo';
+        
+        // Volver a mostrar base para confirmar
+        return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
+      } else if (estado.valorAnterior === estado.valorMenos) {
+        // El anterior era -salto, confirmar -salto
+        estado.valorConfirmado = estado.valorMenos;
+        estado.confirmaciones = 1;
+        estado.faseComparacion = 'mostrando_alternativo';
+        
+        // Volver a mostrar base para confirmar
+        return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
+      }
+    }
+    
+  } else if (preferencia === 'actual') {
+    // Eligió el lente actual
+    if (estado.valorActual === estado.valorMas) {
+      // Estaba mostrando +salto, eligió +salto
+      estado.valorConfirmado = estado.valorMas;
+      estado.confirmaciones = 1;
+      estado.valorAnterior = estado.valorMas;
+      estado.faseComparacion = 'mostrando_alternativo';
+      
+      // Generar pasos para mostrar base (confirmar)
+      return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
+      
+    } else if (estado.valorActual === estado.valorMenos) {
+      // Estaba mostrando -salto, eligió -salto
+      estado.valorConfirmado = estado.valorMenos;
+      estado.confirmaciones = 1;
+      estado.valorAnterior = estado.valorMenos;
+      estado.faseComparacion = 'mostrando_alternativo';
+      
+      // Generar pasos para mostrar base (confirmar)
+      return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
+      
+    } else if (estado.valorActual === estado.valorBase) {
+      // Estaba mostrando base, eligió base (confirmación)
+      estado.confirmaciones += 1;
+      
+      if (estado.confirmaciones >= 2) {
+        // Confirmado
+        estado.faseComparacion = 'confirmado';
+        return confirmarResultado(estado.valorBase);
+      } else {
+        // Aún necesita otra confirmación
+        estado.faseComparacion = 'mostrando_alternativo';
+        // Mostrar el alternativo que no probamos aún
+        if (!estado.valoresProbados.mas) {
+          return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorMas };
+        } else if (!estado.valoresProbados.menos) {
+          return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorMenos };
+        } else {
+          // Ya probamos ambos, volver a mostrar base
+          return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
+        }
+      }
+    }
+    
+  } else if (preferencia === 'igual') {
+    // Dice que son iguales
+    // Probar de nuevo esos lentes
+    if (estado.confirmaciones === 0) {
+      // Primera vez que dice igual, reintentar
+      estado.faseComparacion = 'mostrando_alternativo';
+      return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorActual };
+    } else {
+      // Ya dijo igual antes, usar el valor más pequeño
+      const valores = [estado.valorMas, estado.valorBase, estado.valorMenos].filter(v => v !== null);
+      const valorMasPequeno = Math.min(...valores);
+      
+      console.log(`⚠️ Paciente dice "igual" repetidamente, usando valor más pequeño: ${valorMasPequeno}`);
+      estado.faseComparacion = 'confirmado';
+      return confirmarResultado(valorMasPequeno);
+    }
+  }
+  
+  return { ok: true };
+}
+
+/**
+ * Confirma el resultado final del test de lentes
+ * @param {number} valorFinal - Valor final confirmado
+ * @returns {object} - Resultado de la confirmación
+ */
+function confirmarResultado(valorFinal) {
+  const estado = estadoExamen.comparacionActual;
+  const ojo = estado.ojo;
+  
+  // Guardar resultado
+  estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso = valorFinal;
+  
+  console.log(`✅ Resultado confirmado para ${ojo} (esférico grueso): ${valorFinal}`);
+  
+  // Resetear estado de comparación
+  estadoExamen.comparacionActual = {
+    tipo: null,
+    ojo: null,
+    valorBase: null,
+    valorActual: null,
+    valorAnterior: null,
+    valorConfirmado: null,
+    confirmaciones: 0,
+    direccion: null,
+    faseComparacion: null,
+    letraActual: null,
+    logmarActual: null,
+    saltoActual: null,
+    valorMas: null,
+    valorMenos: null,
+    valoresProbados: {
+      mas: false,
+      menos: false,
+      base: false
+    }
+  };
+  
+  // Avanzar al siguiente test (siempre será esférico fino según secuencia)
+  const siguienteTest = avanzarTest();
+  
+  return {
+    ok: true,
+    resultadoConfirmado: true,
+    valorFinal,
+    siguienteTest
+  };
 }
 
 /**
