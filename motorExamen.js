@@ -5,7 +5,7 @@
  * El agente solo ejecuta pasos, el backend decide TODO.
  * 
  * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV)
- * y solo retorna pasos de tipo "hablar" al agente. 
+ * y solo retorna pasos de tipo "hablar" al agente.
  */
 
 // Importar funciones de ejecución interna desde server.js
@@ -1229,5 +1229,110 @@ function obtenerUltimaAccion() {
     default:
       return `En etapa ${estadoExamen.etapa}`;
   }
+}
+
+/**
+ * Mapea el tipo de test a su campo correspondiente en resultados
+ */
+function mapearTipoTestAResultado(tipo) {
+  const mapa = {
+    'agudeza_inicial': 'agudezaInicial',
+    'esferico_grueso': 'esfericoGrueso',
+    'esferico_fino': 'esfericoFino',
+    'cilindrico': 'cilindrico',
+    'cilindrico_angulo': 'cilindricoAngulo',
+    'agudeza_alcanzada': 'agudezaAlcanzada'
+  };
+  return mapa[tipo] || null;
+}
+
+/**
+ * Obtiene el estado de un test (pendiente, en_curso, completado)
+ */
+function obtenerEstadoTest(indice, tipo, ojo) {
+  const indiceActual = estadoExamen.secuenciaExamen.indiceActual;
+  const campoResultado = mapearTipoTestAResultado(tipo);
+  const resultado = campoResultado ? estadoExamen.secuenciaExamen.resultados[ojo]?.[campoResultado] : null;
+  
+  if (resultado !== null && resultado !== undefined) {
+    return 'completado';
+  } else if (indice === indiceActual) {
+    return 'en_curso';
+  } else {
+    return 'pendiente';
+  }
+}
+
+/**
+ * Obtiene el resultado de un test específico
+ */
+function obtenerResultadoTest(tipo, ojo) {
+  const campoResultado = mapearTipoTestAResultado(tipo);
+  if (!campoResultado) return null;
+  
+  return estadoExamen.secuenciaExamen.resultados[ojo]?.[campoResultado] ?? null;
+}
+
+/**
+ * Obtiene el detalle completo del examen
+ * Incluye valores iniciales, recalculados, lista de tests y resultados
+ */
+export function obtenerDetalleExamen() {
+  const { secuenciaExamen, valoresIniciales, valoresRecalculados } = estadoExamen;
+  
+  // Mapear tests con su estado y resultado
+  // Si testsActivos está vacío o no existe, retornar array vacío
+  const tests = (secuenciaExamen.testsActivos || []).map((test, indice) => {
+    const estado = obtenerEstadoTest(indice, test.tipo, test.ojo);
+    const resultado = obtenerResultadoTest(test.tipo, test.ojo);
+    
+    return {
+      indice,
+      tipo: test.tipo,
+      ojo: test.ojo,
+      estado,
+      resultado
+    };
+  });
+  
+  return {
+    ok: true,
+    detalle: {
+      // 1. Valores iniciales
+      valoresIniciales: {
+        R: { ...valoresIniciales.R },
+        L: { ...valoresIniciales.L }
+      },
+      
+      // 2. Valores recalculados
+      valoresRecalculados: {
+        R: { ...valoresRecalculados.R },
+        L: { ...valoresRecalculados.L }
+      },
+      
+      // 3. Lista de tests a realizar (con estado)
+      tests,
+      
+      // 4. Valores de los tests (realizados y por realizar)
+      resultados: {
+        R: { ...(secuenciaExamen.resultados?.R || {}) },
+        L: { ...(secuenciaExamen.resultados?.L || {}) }
+      },
+      
+      // 5. Información adicional
+      estadoActual: {
+        etapa: estadoExamen.etapa,
+        ojoActual: estadoExamen.ojoActual,
+        testActual: secuenciaExamen.testActual || null,
+        indiceActual: secuenciaExamen.indiceActual || 0,
+        progreso: calcularProgreso()
+      },
+      
+      timestamps: {
+        iniciado: estadoExamen.iniciado,
+        finalizado: estadoExamen.finalizado
+      }
+    }
+  };
 }
 
