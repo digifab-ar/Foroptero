@@ -1159,12 +1159,25 @@ export async function obtenerInstrucciones(respuestaPaciente = null, interpretac
       // Si necesita mostrar otro lente, generar pasos
       if (resultado.necesitaMostrarLente) {
         const estado = estadoExamen.comparacionActual;
-        const pasosMostrar = generarPasosMostrarLente(
-          estado.ojo,
-          resultado.valorAMostrar,
-          estado.letraActual,
-          estado.logmarActual
-        );
+        const testActual = estadoExamen.secuenciaExamen.testActual;
+        
+        // Usar la función correcta según el tipo de test
+        let pasosMostrar;
+        if (testActual?.tipo === 'cilindrico') {
+          pasosMostrar = generarPasosMostrarLenteCilindrico(
+            estado.ojo,
+            resultado.valorAMostrar,
+            estado.letraActual,
+            estado.logmarActual
+          );
+        } else {
+          pasosMostrar = generarPasosMostrarLente(
+            estado.ojo,
+            resultado.valorAMostrar,
+            estado.letraActual,
+            estado.logmarActual
+          );
+        }
         
         // Actualizar estado
         estado.valorAnterior = estado.valorActual;
@@ -1458,13 +1471,21 @@ async function esperarForopteroReady(timeoutMs = 10000, intervaloMs = 200) {
  */
 function iniciarComparacionLentes(tipo, ojo, valorBase) {
   // Validar tipo
-  if (tipo !== 'esferico_grueso' && tipo !== 'esferico_fino') {
+  if (tipo !== 'esferico_grueso' && tipo !== 'esferico_fino' && tipo !== 'cilindrico') {
     return { ok: false, error: `Tipo de test ${tipo} no implementado aún` };
   }
   
-  // Validar límites de valores (esfera típicamente -6.00 a +6.00)
-  if (valorBase < -6.00 || valorBase > 6.00) {
-    return { ok: false, error: `Valor base ${valorBase} fuera de rango válido (-6.00 a +6.00)` };
+  // Validar límites según tipo
+  if (tipo === 'cilindrico') {
+    // Cilindro típicamente -6.00 a 0 (solo valores negativos o cero)
+    if (valorBase < -6.00 || valorBase > 0) {
+      return { ok: false, error: `Valor base de cilindro ${valorBase} fuera de rango válido (-6.00 a 0)` };
+    }
+  } else {
+    // Esfera típicamente -6.00 a +6.00
+    if (valorBase < -6.00 || valorBase > 6.00) {
+      return { ok: false, error: `Valor base ${valorBase} fuera de rango válido (-6.00 a +6.00)` };
+    }
   }
   
   // Calcular valores pre-calculados según tipo
@@ -1473,19 +1494,34 @@ function iniciarComparacionLentes(tipo, ojo, valorBase) {
     saltoActual = 0.50; // Para esférico grueso
   } else if (tipo === 'esferico_fino') {
     saltoActual = 0.25; // Para esférico fino (más preciso)
+  } else if (tipo === 'cilindrico') {
+    saltoActual = 0.50; // Para cilíndrico
   }
   
   let valorMas = valorBase + saltoActual;
   let valorMenos = valorBase - saltoActual;
   
-  // Validar que los valores calculados no excedan límites
-  if (valorMas > 6.00) {
-    valorMas = 6.00;
-    saltoActual = valorMas - valorBase;
-  }
-  if (valorMenos < -6.00) {
-    valorMenos = -6.00;
-    saltoActual = valorBase - valorMenos;
+  // Validar que los valores calculados no excedan límites según tipo
+  if (tipo === 'cilindrico') {
+    // Cilindro: -6.00 a 0 (solo negativos o cero)
+    if (valorMas > 0) {
+      valorMas = 0;
+      saltoActual = valorMas - valorBase;
+    }
+    if (valorMenos < -6.00) {
+      valorMenos = -6.00;
+      saltoActual = valorBase - valorMenos;
+    }
+  } else {
+    // Esfera: -6.00 a +6.00
+    if (valorMas > 6.00) {
+      valorMas = 6.00;
+      saltoActual = valorMas - valorBase;
+    }
+    if (valorMenos < -6.00) {
+      valorMenos = -6.00;
+      saltoActual = valorBase - valorMenos;
+    }
   }
   
   // Obtener letra y logMAR actuales (del test de agudeza)
@@ -1576,13 +1612,67 @@ function generarPasosMostrarLente(ojo, valorEsfera, letra, logmar) {
 }
 
 /**
+ * Genera pasos para mostrar un lente con cilindro específico en el foróptero
+ * @param {string} ojo - Ojo a configurar: 'R' | 'L'
+ * @param {number} valorCilindro - Valor de cilindro a mostrar
+ * @param {string} letra - Letra a mostrar en TV
+ * @param {number} logmar - LogMAR de la letra
+ * @returns {Array} - Array de pasos
+ */
+function generarPasosMostrarLenteCilindrico(ojo, valorCilindro, letra, logmar) {
+  const pasos = [];
+  
+  // Obtener valores actuales del foróptero (usar resultados de tests anteriores si existen)
+  const esferaFinal = estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino 
+    || estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso 
+    || estadoExamen.valoresRecalculados[ojo].esfera;
+  
+  // 1. Configurar foróptero con el nuevo valor de cilindro
+  const configForoptero = {
+    [ojo]: {
+      esfera: esferaFinal,
+      cilindro: valorCilindro,
+      // Mantener ángulo del valor recalculado
+      angulo: estadoExamen.valoresRecalculados[ojo].angulo,
+      occlusion: 'open'
+    },
+    // Ojo opuesto cerrado
+    [ojo === 'R' ? 'L' : 'R']: {
+      occlusion: 'close'
+    }
+  };
+  
+  pasos.push({
+    tipo: 'foroptero',
+    orden: 1,
+    foroptero: configForoptero
+  });
+  
+  // 2. Esperar a que el foróptero esté ready
+  pasos.push({
+    tipo: 'esperar_foroptero',
+    orden: 2
+  });
+  
+  // 3. Mostrar letra en TV
+  pasos.push({
+    tipo: 'tv',
+    orden: 3,
+    letra,
+    logmar
+  });
+  
+  return pasos;
+}
+
+/**
  * Genera pasos para ETAPA_5 (tests de lentes - esférico grueso, esférico fino, etc.)
  */
 function generarPasosEtapa5() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en test de lentes
-  if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino')) {
+  if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino' && testActual.tipo !== 'cilindrico')) {
     return {
       ok: false,
       error: `No estamos en test de lentes válido. Tipo actual: ${testActual?.tipo}`
@@ -1610,6 +1700,16 @@ function generarPasosEtapa5() {
         };
       }
       valorBase = resultadoGrueso;
+    } else if (tipo === 'cilindrico') {
+      // El valor base es el valor recalculado de cilindro para este ojo
+      valorBase = estadoExamen.valoresRecalculados[ojo].cilindro;
+      // Validar que el cilindro no sea 0 ni -0.25 (no debería estar en la secuencia si es así)
+      if (valorBase === 0 || valorBase === -0.25) {
+        return {
+          ok: false,
+          error: 'El test de cilindro no aplica para este ojo (cilindro = 0 o -0.25)'
+        };
+      }
     } else {
       return {
         ok: false,
@@ -1639,15 +1739,25 @@ function generarPasosEtapa5() {
         mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
       });
     }
-    // Para esférico fino, continuamos directamente sin mensaje adicional (es parte del flujo)
+    // Para esférico fino y cilíndrico, continuamos directamente sin mensaje adicional (es parte del flujo)
     
-    // Generar pasos para mostrar valorMas
-    const pasosMostrar = generarPasosMostrarLente(
-      ojo,
-      estado.valorMas,
-      estado.letraActual,
-      estado.logmarActual
-    );
+    // Generar pasos para mostrar valorMas según el tipo de test
+    let pasosMostrar;
+    if (tipo === 'cilindrico') {
+      pasosMostrar = generarPasosMostrarLenteCilindrico(
+        ojo,
+        estado.valorMas,
+        estado.letraActual,
+        estado.logmarActual
+      );
+    } else {
+      pasosMostrar = generarPasosMostrarLente(
+        ojo,
+        estado.valorMas,
+        estado.letraActual,
+        estado.logmarActual
+      );
+    }
     pasos.push(...pasosMostrar.map((p, i) => ({ ...p, orden: ordenInicial + i })));
     
     // Actualizar estado
@@ -1754,7 +1864,7 @@ function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionCom
   }
   
   // Validar que el tipo es uno de los soportados
-  if (estado.tipo !== 'esferico_grueso' && estado.tipo !== 'esferico_fino') {
+  if (estado.tipo !== 'esferico_grueso' && estado.tipo !== 'esferico_fino' && estado.tipo !== 'cilindrico') {
     return { ok: false, error: `Tipo de test ${estado.tipo} no soportado aún` };
   }
   
@@ -1901,6 +2011,37 @@ function confirmarResultado(valorFinal) {
   } else if (tipo === 'esferico_fino') {
     estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino = valorFinal;
     console.log(`✅ Resultado confirmado para ${ojo} (esférico fino): ${valorFinal}`);
+  } else if (tipo === 'cilindrico') {
+    estadoExamen.secuenciaExamen.resultados[ojo].cilindrico = valorFinal;
+    console.log(`✅ Resultado confirmado para ${ojo} (cilíndrico): ${valorFinal}`);
+    
+    // Actualizar el foróptero con el nuevo valor de cilindro
+    // Obtener valores actuales del foróptero (usar resultados de tests anteriores si existen)
+    const esferaFinal = estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino 
+      || estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso 
+      || estadoExamen.valoresRecalculados[ojo].esfera;
+    
+    // Actualizar foróptero con el nuevo cilindro confirmado
+    if (ejecutarComandoForopteroInterno) {
+      const configForoptero = {
+        [ojo]: {
+          esfera: esferaFinal,
+          cilindro: valorFinal,
+          angulo: estadoExamen.valoresRecalculados[ojo].angulo,
+          occlusion: 'open'
+        },
+        [ojo === 'R' ? 'L' : 'R']: {
+          occlusion: 'close'
+        }
+      };
+      
+      // Ejecutar de forma asíncrona (no esperar, continuar con el flujo)
+      ejecutarComandoForopteroInterno(configForoptero).catch(err => {
+        console.error(`⚠️ Error actualizando foróptero después de confirmar cilíndrico:`, err);
+      });
+      
+      console.log(`🔧 Foróptero actualizado con nuevo cilindro para ${ojo}: ${valorFinal}`);
+    }
   } else {
     console.error(`❌ Tipo de test desconocido al confirmar resultado: ${tipo}`);
     return { ok: false, error: `Tipo de test ${tipo} no soportado` };
@@ -1929,7 +2070,7 @@ function confirmarResultado(valorFinal) {
     }
   };
   
-  // Avanzar al siguiente test (siempre será esférico fino según secuencia)
+  // Avanzar al siguiente test
   const siguienteTest = avanzarTest();
   
   return {
