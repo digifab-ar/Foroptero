@@ -596,6 +596,23 @@ export function obtenerTestActual() {
 }
 
 /**
+ * Mapea el tipo de test a su etapa correspondiente
+ * @param {string} tipo - Tipo de test
+ * @returns {string} - Etapa correspondiente
+ */
+function mapearTipoTestAEtapa(tipo) {
+  const mapa = {
+    'agudeza_inicial': 'ETAPA_4',
+    'esferico_grueso': 'ETAPA_5',
+    'esferico_fino': 'ETAPA_5',
+    'cilindrico': 'ETAPA_5',
+    'cilindrico_angulo': 'ETAPA_5',
+    'agudeza_alcanzada': 'ETAPA_4'
+  };
+  return mapa[tipo] || 'ETAPA_4'; // Default a ETAPA_4 por seguridad
+}
+
+/**
  * Avanza al siguiente test en la secuencia
  * @returns {object|null} - Nuevo test actual o null si se completó el examen
  */
@@ -614,7 +631,11 @@ export function avanzarTest() {
   secuencia.indiceActual += 1;
   secuencia.testActual = secuencia.testsActivos[secuencia.indiceActual];
   
-  console.log(`➡️ Avanzando a test: ${secuencia.testActual.tipo} (${secuencia.testActual.ojo})`);
+  // Actualizar etapa según el tipo de test siguiente
+  if (secuencia.testActual) {
+    estadoExamen.etapa = mapearTipoTestAEtapa(secuencia.testActual.tipo);
+    console.log(`➡️ Avanzando a test: ${secuencia.testActual.tipo} (${secuencia.testActual.ojo}) → Etapa: ${estadoExamen.etapa}`);
+  }
   
   return secuencia.testActual;
 }
@@ -863,18 +884,11 @@ function generarPasosEtapa4() {
   if (estadoExamen.agudezaVisual[ojo]?.confirmado) {
     const siguienteTest = avanzarTest();
     if (siguienteTest) {
-      // Cambiar a la etapa del siguiente test
-      if (siguienteTest.tipo === 'agudeza_inicial') {
-        // Siguiente test también es agudeza (otro ojo)
-        return generarPasosEtapa4();
-      } else {
-        // Siguiente test es de lentes, cambiar a ETAPA_5
-        estadoExamen.etapa = 'ETAPA_5';
-        return generarPasos(); // Generar pasos de la nueva etapa
-      }
+      // avanzarTest() ya actualizó la etapa automáticamente
+      // Generar pasos de la nueva etapa
+      return generarPasos();
     } else {
-      // Examen completado
-      estadoExamen.etapa = 'FINALIZADO';
+      // Examen completado (avanzarTest() ya cambió etapa a FINALIZADO)
       return {
         ok: true,
         pasos: [
