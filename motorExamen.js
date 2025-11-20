@@ -1174,6 +1174,13 @@ export async function obtenerInstrucciones(respuestaPaciente = null, interpretac
             estado.letraActual,
             estado.logmarActual
           );
+        } else if (testActual?.tipo === 'cilindrico_angulo') {
+          pasosMostrar = generarPasosMostrarLenteCilindricoAngulo(
+            estado.ojo,
+            resultado.valorAMostrar,
+            estado.letraActual,
+            estado.logmarActual
+          );
         } else {
           pasosMostrar = generarPasosMostrarLente(
             estado.ojo,
@@ -1475,7 +1482,7 @@ async function esperarForopteroReady(timeoutMs = 10000, intervaloMs = 200) {
  */
 function iniciarComparacionLentes(tipo, ojo, valorBase) {
   // Validar tipo
-  if (tipo !== 'esferico_grueso' && tipo !== 'esferico_fino' && tipo !== 'cilindrico') {
+  if (tipo !== 'esferico_grueso' && tipo !== 'esferico_fino' && tipo !== 'cilindrico' && tipo !== 'cilindrico_angulo') {
     return { ok: false, error: `Tipo de test ${tipo} no implementado aún` };
   }
   
@@ -1484,6 +1491,11 @@ function iniciarComparacionLentes(tipo, ojo, valorBase) {
     // Cilindro típicamente -6.00 a 0 (solo valores negativos o cero)
     if (valorBase < -6.00 || valorBase > 0) {
       return { ok: false, error: `Valor base de cilindro ${valorBase} fuera de rango válido (-6.00 a 0)` };
+    }
+  } else if (tipo === 'cilindrico_angulo') {
+    // Ángulo típicamente 0 a 180 grados
+    if (valorBase < 0 || valorBase > 180) {
+      return { ok: false, error: `Valor base de ángulo ${valorBase} fuera de rango válido (0 a 180 grados)` };
     }
   } else {
     // Esfera típicamente -6.00 a +6.00
@@ -1500,6 +1512,8 @@ function iniciarComparacionLentes(tipo, ojo, valorBase) {
     saltoActual = 0.25; // Para esférico fino (más preciso)
   } else if (tipo === 'cilindrico') {
     saltoActual = 0.50; // Para cilíndrico
+  } else if (tipo === 'cilindrico_angulo') {
+    saltoActual = 15; // Para cilíndrico ángulo (en grados)
   }
   
   let valorMas = valorBase + saltoActual;
@@ -1515,6 +1529,14 @@ function iniciarComparacionLentes(tipo, ojo, valorBase) {
     if (valorMenos < -6.00) {
       valorMenos = -6.00;
       saltoActual = valorBase - valorMenos;
+    }
+  } else if (tipo === 'cilindrico_angulo') {
+    // Ángulo: 0 a 180 grados (circular - wraparound)
+    if (valorMas > 180) {
+      valorMas = valorMas - 180; // Wraparound: 195° → 15°
+    }
+    if (valorMenos < 0) {
+      valorMenos = valorMenos + 180; // Wraparound: -15° → 165°
     }
   } else {
     // Esfera: -6.00 a +6.00
@@ -1670,13 +1692,70 @@ function generarPasosMostrarLenteCilindrico(ojo, valorCilindro, letra, logmar) {
 }
 
 /**
+ * Genera pasos para mostrar un lente con ángulo cilíndrico específico en el foróptero
+ * @param {string} ojo - Ojo a configurar: 'R' | 'L'
+ * @param {number} valorAngulo - Valor de ángulo a mostrar (0-180 grados)
+ * @param {string} letra - Letra a mostrar en TV
+ * @param {number} logmar - LogMAR de la letra
+ * @returns {Array} - Array de pasos
+ */
+function generarPasosMostrarLenteCilindricoAngulo(ojo, valorAngulo, letra, logmar) {
+  const pasos = [];
+  
+  // Obtener valores actuales del foróptero (usar resultados de tests anteriores si existen)
+  const esferaFinal = estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino 
+    || estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso 
+    || estadoExamen.valoresRecalculados[ojo].esfera;
+  
+  // Usar el resultado del test de cilindro si existe, sino el valor recalculado
+  const cilindroFinal = estadoExamen.secuenciaExamen.resultados[ojo].cilindrico 
+    || estadoExamen.valoresRecalculados[ojo].cilindro;
+  
+  // 1. Configurar foróptero con el nuevo valor de ángulo
+  const configForoptero = {
+    [ojo]: {
+      esfera: esferaFinal,
+      cilindro: cilindroFinal,
+      angulo: valorAngulo, // Actualizar ángulo
+      occlusion: 'open'
+    },
+    // Ojo opuesto cerrado
+    [ojo === 'R' ? 'L' : 'R']: {
+      occlusion: 'close'
+    }
+  };
+  
+  pasos.push({
+    tipo: 'foroptero',
+    orden: 1,
+    foroptero: configForoptero
+  });
+  
+  // 2. Esperar a que el foróptero esté ready
+  pasos.push({
+    tipo: 'esperar_foroptero',
+    orden: 2
+  });
+  
+  // 3. Mostrar letra en TV
+  pasos.push({
+    tipo: 'tv',
+    orden: 3,
+    letra,
+    logmar
+  });
+  
+  return pasos;
+}
+
+/**
  * Genera pasos para ETAPA_5 (tests de lentes - esférico grueso, esférico fino, etc.)
  */
 function generarPasosEtapa5() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en test de lentes
-  if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino' && testActual.tipo !== 'cilindrico')) {
+  if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino' && testActual.tipo !== 'cilindrico' && testActual.tipo !== 'cilindrico_angulo')) {
     return {
       ok: false,
       error: `No estamos en test de lentes válido. Tipo actual: ${testActual?.tipo}`
@@ -1714,6 +1793,16 @@ function generarPasosEtapa5() {
           error: 'El test de cilindro no aplica para este ojo (cilindro = 0 o -0.25)'
         };
       }
+    } else if (tipo === 'cilindrico_angulo') {
+      // El valor base es el valor inicial de ángulo (NO recalculado) para este ojo
+      valorBase = estadoExamen.valoresIniciales[ojo].angulo;
+      // Validar que el ángulo sea válido (0-180)
+      if (valorBase === null || valorBase === undefined || valorBase < 0 || valorBase > 180) {
+        return {
+          ok: false,
+          error: `El test de cilíndrico ángulo requiere un ángulo inicial válido (0-180 grados). Ángulo actual: ${valorBase}`
+        };
+      }
     } else {
       return {
         ok: false,
@@ -1733,7 +1822,7 @@ function generarPasosEtapa5() {
   // Generar pasos según la fase de comparación
   if (estado.faseComparacion === 'iniciando') {
     // Fase inicial: mensaje introductorio + mostrar valorMas
-    // NOTA: Para esférico fino, no mencionamos que es un test diferente, es parte del flujo continuo
+    // NOTA: Para esférico fino, cilíndrico y cilíndrico ángulo, no mencionamos que es un test diferente, es parte del flujo continuo
     // Solo mostrar mensaje introductorio en esférico grueso (primera vez)
     let ordenInicial = 1;
     if (tipo === 'esferico_grueso') {
@@ -1743,12 +1832,19 @@ function generarPasosEtapa5() {
         mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
       });
     }
-    // Para esférico fino y cilíndrico, continuamos directamente sin mensaje adicional (es parte del flujo)
+    // Para esférico fino, cilíndrico y cilíndrico ángulo, continuamos directamente sin mensaje adicional (es parte del flujo)
     
     // Generar pasos para mostrar valorMas según el tipo de test
     let pasosMostrar;
     if (tipo === 'cilindrico') {
       pasosMostrar = generarPasosMostrarLenteCilindrico(
+        ojo,
+        estado.valorMas,
+        estado.letraActual,
+        estado.logmarActual
+      );
+    } else if (tipo === 'cilindrico_angulo') {
+      pasosMostrar = generarPasosMostrarLenteCilindricoAngulo(
         ojo,
         estado.valorMas,
         estado.letraActual,
@@ -1868,7 +1964,7 @@ function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionCom
   }
   
   // Validar que el tipo es uno de los soportados
-  if (estado.tipo !== 'esferico_grueso' && estado.tipo !== 'esferico_fino' && estado.tipo !== 'cilindrico') {
+  if (estado.tipo !== 'esferico_grueso' && estado.tipo !== 'esferico_fino' && estado.tipo !== 'cilindrico' && estado.tipo !== 'cilindrico_angulo') {
     return { ok: false, error: `Tipo de test ${estado.tipo} no soportado aún` };
   }
   
@@ -2059,6 +2155,41 @@ function confirmarResultado(valorFinal) {
       });
       
       console.log(`🔧 Foróptero actualizado con nuevo cilindro para ${ojo}: ${valorFinal}`);
+    }
+  } else if (tipo === 'cilindrico_angulo') {
+    estadoExamen.secuenciaExamen.resultados[ojo].cilindricoAngulo = valorFinal;
+    console.log(`✅ Resultado confirmado para ${ojo} (cilíndrico ángulo): ${valorFinal}°`);
+    
+    // Actualizar el foróptero con el nuevo valor de ángulo
+    // Obtener valores actuales del foróptero (usar resultados de tests anteriores si existen)
+    const esferaFinal = estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino 
+      || estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso 
+      || estadoExamen.valoresRecalculados[ojo].esfera;
+    
+    // Usar el resultado del test de cilindro si existe, sino el valor recalculado
+    const cilindroFinal = estadoExamen.secuenciaExamen.resultados[ojo].cilindrico 
+      || estadoExamen.valoresRecalculados[ojo].cilindro;
+    
+    // Actualizar foróptero con el nuevo ángulo confirmado
+    if (ejecutarComandoForopteroInterno) {
+      const configForoptero = {
+        [ojo]: {
+          esfera: esferaFinal,
+          cilindro: cilindroFinal,
+          angulo: valorFinal, // Actualizar ángulo
+          occlusion: 'open'
+        },
+        [ojo === 'R' ? 'L' : 'R']: {
+          occlusion: 'close'
+        }
+      };
+      
+      // Ejecutar de forma asíncrona (no esperar, continuar con el flujo)
+      ejecutarComandoForopteroInterno(configForoptero).catch(err => {
+        console.error(`⚠️ Error actualizando foróptero después de confirmar cilíndrico ángulo:`, err);
+      });
+      
+      console.log(`🔧 Foróptero actualizado con nuevo ángulo para ${ojo}: ${valorFinal}°`);
     }
   } else {
     console.error(`❌ Tipo de test desconocido al confirmar resultado: ${tipo}`);
