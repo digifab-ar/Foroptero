@@ -1,5 +1,5 @@
 /**
- * MOTOR DE EXAMEN VISUAL
+ * MOTOR DE EXAMEN VISUAL 
  * 
  * State Machine que maneja toda la lógica del examen visual.
  * El agente solo ejecuta pasos, el backend decide TODO.
