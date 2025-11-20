@@ -1912,18 +1912,32 @@ function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionCom
       if (estado.valorAnterior === estado.valorMas) {
         // El anterior era +salto, confirmar +salto
         estado.valorConfirmado = estado.valorMas;
-        estado.confirmaciones = 1;
-        estado.faseComparacion = 'mostrando_alternativo';
+        estado.confirmaciones += 1; // Incrementar en lugar de resetear
         
-        // Volver a mostrar base para confirmar
+        // Verificar si ya hay suficientes confirmaciones
+        if (estado.confirmaciones >= 2) {
+          // Confirmar resultado directamente
+          estado.faseComparacion = 'confirmado';
+          return confirmarResultado(estado.valorMas);
+        }
+        
+        // Si aún no hay 2 confirmaciones, mostrar base para confirmar
+        estado.faseComparacion = 'mostrando_alternativo';
         return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
       } else if (estado.valorAnterior === estado.valorMenos) {
         // El anterior era -salto, confirmar -salto
         estado.valorConfirmado = estado.valorMenos;
-        estado.confirmaciones = 1;
-        estado.faseComparacion = 'mostrando_alternativo';
+        estado.confirmaciones += 1; // Incrementar en lugar de resetear
         
-        // Volver a mostrar base para confirmar
+        // Verificar si ya hay suficientes confirmaciones
+        if (estado.confirmaciones >= 2) {
+          // Confirmar resultado directamente
+          estado.faseComparacion = 'confirmado';
+          return confirmarResultado(estado.valorMenos);
+        }
+        
+        // Si aún no hay 2 confirmaciones, mostrar base para confirmar
+        estado.faseComparacion = 'mostrando_alternativo';
         return { ok: true, necesitaMostrarLente: true, valorAMostrar: estado.valorBase };
       }
     }
