@@ -1457,8 +1457,8 @@ async function esperarForopteroReady(timeoutMs = 10000, intervaloMs = 200) {
  * @returns {object} - Resultado de la inicialización
  */
 function iniciarComparacionLentes(tipo, ojo, valorBase) {
-  // Validar tipo (solo esférico grueso para FASE 4)
-  if (tipo !== 'esferico_grueso') {
+  // Validar tipo
+  if (tipo !== 'esferico_grueso' && tipo !== 'esferico_fino') {
     return { ok: false, error: `Tipo de test ${tipo} no implementado aún` };
   }
   
@@ -1468,7 +1468,13 @@ function iniciarComparacionLentes(tipo, ojo, valorBase) {
   }
   
   // Calcular valores pre-calculados según tipo
-  let saltoActual = 0.50; // Para esférico grueso
+  let saltoActual;
+  if (tipo === 'esferico_grueso') {
+    saltoActual = 0.50; // Para esférico grueso
+  } else if (tipo === 'esferico_fino') {
+    saltoActual = 0.25; // Para esférico fino (más preciso)
+  }
+  
   let valorMas = valorBase + saltoActual;
   let valorMenos = valorBase - saltoActual;
   
@@ -1570,37 +1576,48 @@ function generarPasosMostrarLente(ojo, valorEsfera, letra, logmar) {
 }
 
 /**
- * Genera pasos para ETAPA_5 (tests de lentes - esférico grueso)
+ * Genera pasos para ETAPA_5 (tests de lentes - esférico grueso, esférico fino, etc.)
  */
 function generarPasosEtapa5() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en test de lentes
-  if (!testActual || testActual.tipo !== 'esferico_grueso') {
+  if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino')) {
     return {
       ok: false,
-      error: 'No estamos en test de esférico grueso'
+      error: `No estamos en test de lentes válido. Tipo actual: ${testActual?.tipo}`
     };
   }
   
   const ojo = testActual.ojo;
+  const tipo = testActual.tipo;
   const comparacion = estadoExamen.comparacionActual;
   
-  // Si no hay comparación iniciada, inicializarla
-  if (!comparacion.tipo || comparacion.ojo !== ojo) {
-    // Obtener valor base del test de agudeza (ya está en el foróptero)
-    const agudeza = estadoExamen.agudezaVisual[ojo];
-    if (!agudeza || !agudeza.confirmado) {
+  // Si no hay comparación iniciada o es un tipo diferente, inicializarla
+  if (!comparacion.tipo || comparacion.ojo !== ojo || comparacion.tipo !== tipo) {
+    let valorBase;
+    
+    if (tipo === 'esferico_grueso') {
+      // El valor base es el valor recalculado de esfera para este ojo
+      valorBase = estadoExamen.valoresRecalculados[ojo].esfera;
+    } else if (tipo === 'esferico_fino') {
+      // El valor base es el resultado del test de esférico grueso
+      const resultadoGrueso = estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso;
+      if (resultadoGrueso === null || resultadoGrueso === undefined) {
+        return {
+          ok: false,
+          error: 'Debe completarse el test de esférico grueso antes de esférico fino'
+        };
+      }
+      valorBase = resultadoGrueso;
+    } else {
       return {
         ok: false,
-        error: 'Debe completarse el test de agudeza visual antes de comparar lentes'
+        error: `Tipo de test ${tipo} no soportado aún`
       };
     }
     
-    // El valor base es el valor recalculado de esfera para este ojo
-    const valorBase = estadoExamen.valoresRecalculados[ojo].esfera;
-    
-    const resultado = iniciarComparacionLentes('esferico_grueso', ojo, valorBase);
+    const resultado = iniciarComparacionLentes(tipo, ojo, valorBase);
     if (!resultado.ok) {
       return resultado;
     }
@@ -1612,11 +1629,17 @@ function generarPasosEtapa5() {
   // Generar pasos según la fase de comparación
   if (estado.faseComparacion === 'iniciando') {
     // Fase inicial: mensaje introductorio + mostrar valorMas
-    pasos.push({
-      tipo: 'hablar',
-      orden: 1,
-      mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
-    });
+    // NOTA: Para esférico fino, no mencionamos que es un test diferente, es parte del flujo continuo
+    // Solo mostrar mensaje introductorio en esférico grueso (primera vez)
+    let ordenInicial = 1;
+    if (tipo === 'esferico_grueso') {
+      pasos.push({
+        tipo: 'hablar',
+        orden: ordenInicial++,
+        mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
+      });
+    }
+    // Para esférico fino, continuamos directamente sin mensaje adicional (es parte del flujo)
     
     // Generar pasos para mostrar valorMas
     const pasosMostrar = generarPasosMostrarLente(
@@ -1625,7 +1648,7 @@ function generarPasosEtapa5() {
       estado.letraActual,
       estado.logmarActual
     );
-    pasos.push(...pasosMostrar.map((p, i) => ({ ...p, orden: i + 2 })));
+    pasos.push(...pasosMostrar.map((p, i) => ({ ...p, orden: ordenInicial + i })));
     
     // Actualizar estado
     estado.valorActual = estado.valorMas;
@@ -1721,8 +1744,18 @@ function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionCom
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en comparación de lentes
-  if (!estado.tipo || !testActual || testActual.tipo !== 'esferico_grueso') {
+  if (!estado.tipo || !testActual) {
     return { ok: false, error: 'No estamos en comparación de lentes' };
+  }
+  
+  // Validar que el tipo de test coincide con el estado de comparación
+  if (testActual.tipo !== estado.tipo) {
+    return { ok: false, error: `Tipo de test no coincide: esperado ${estado.tipo}, actual ${testActual.tipo}` };
+  }
+  
+  // Validar que el tipo es uno de los soportados
+  if (estado.tipo !== 'esferico_grueso' && estado.tipo !== 'esferico_fino') {
+    return { ok: false, error: `Tipo de test ${estado.tipo} no soportado aún` };
   }
   
   // Interpretar preferencia
@@ -1859,11 +1892,19 @@ function procesarRespuestaComparacionLentes(respuestaPaciente, interpretacionCom
 function confirmarResultado(valorFinal) {
   const estado = estadoExamen.comparacionActual;
   const ojo = estado.ojo;
+  const tipo = estado.tipo;
   
-  // Guardar resultado
-  estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso = valorFinal;
-  
-  console.log(`✅ Resultado confirmado para ${ojo} (esférico grueso): ${valorFinal}`);
+  // Guardar resultado según el tipo de test
+  if (tipo === 'esferico_grueso') {
+    estadoExamen.secuenciaExamen.resultados[ojo].esfericoGrueso = valorFinal;
+    console.log(`✅ Resultado confirmado para ${ojo} (esférico grueso): ${valorFinal}`);
+  } else if (tipo === 'esferico_fino') {
+    estadoExamen.secuenciaExamen.resultados[ojo].esfericoFino = valorFinal;
+    console.log(`✅ Resultado confirmado para ${ojo} (esférico fino): ${valorFinal}`);
+  } else {
+    console.error(`❌ Tipo de test desconocido al confirmar resultado: ${tipo}`);
+    return { ok: false, error: `Tipo de test ${tipo} no soportado` };
+  }
   
   // Resetear estado de comparación
   estadoExamen.comparacionActual = {
