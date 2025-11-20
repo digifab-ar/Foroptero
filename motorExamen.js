@@ -523,12 +523,16 @@ function determinarTestsActivos(cilindro) {
     // No incluir tests de cilindro
     tests.cilindrico = false;
     tests.cilindricoAngulo = false;
-  } else if (cilindro >= -0.50 && cilindro <= -1.75) {
+  } else if (cilindro <= -0.50 && cilindro >= -1.75) {
     // Incluir test de cilindro, pero NO de ángulo
+    // Rango: -1.75 a -0.50 (inclusive)
+    // Para números negativos: <= -0.50 significa más negativo, >= -1.75 significa menos negativo
     tests.cilindrico = true;
     tests.cilindricoAngulo = false;
-  } else if (cilindro >= -2.00 && cilindro <= -6.00) {
+  } else if (cilindro <= -2.00 && cilindro >= -6.00) {
     // Incluir ambos tests
+    // Rango: -6.00 a -2.00 (inclusive)
+    // Para números negativos: <= -2.00 significa más negativo, >= -6.00 significa menos negativo
     tests.cilindrico = true;
     tests.cilindricoAngulo = true;
   }
@@ -1013,7 +1017,7 @@ function generarPasosEtapa3() {
       {
         tipo: 'hablar',
         orden: 3,
-        mensaje: 'Vamos a empezar con este ojo.'
+        mensaje: 'Vamos a empezar con el ojo rerecho, esperemos a que se termine de mover los lentes.'
       }
     ],
     contexto: {
