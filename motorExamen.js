@@ -690,6 +690,38 @@ function generarLetraSloan(letrasUsadas) {
 }
 
 /**
+ * Calcula los valores finales del foróptero para agudeza_alcanzada
+ * Combina valores recalculados con resultados de tests de lentes
+ * @param {string} ojo - 'R' o 'L'
+ * @returns {object} - { esfera, cilindro, angulo }
+ */
+function calcularValoresFinalesForoptero(ojo) {
+  const resultados = estadoExamen.secuenciaExamen.resultados[ojo];
+  const valoresRecalculados = estadoExamen.valoresRecalculados[ojo];
+  
+  // Esfera: Prioridad: esfericoFino > esfericoGrueso > valoresRecalculados
+  const esfera = resultados.esfericoFino !== null && resultados.esfericoFino !== undefined
+    ? resultados.esfericoFino
+    : (resultados.esfericoGrueso !== null && resultados.esfericoGrueso !== undefined
+      ? resultados.esfericoGrueso
+      : valoresRecalculados.esfera);
+  
+  // Cilindro: Prioridad: cilindrico > valoresRecalculados
+  const cilindro = resultados.cilindrico !== null && resultados.cilindrico !== undefined
+    ? resultados.cilindrico
+    : valoresRecalculados.cilindro;
+  
+  // Ángulo: Prioridad: cilindricoAngulo > valoresRecalculados
+  const angulo = resultados.cilindricoAngulo !== null && resultados.cilindricoAngulo !== undefined
+    ? resultados.cilindricoAngulo
+    : valoresRecalculados.angulo;
+  
+  console.log(`🔧 Valores finales foróptero para ${ojo}:`, { esfera, cilindro, angulo });
+  
+  return { esfera, cilindro, angulo };
+}
+
+/**
  * Procesa respuesta del paciente en test de agudeza visual
  * @param {string} respuestaPaciente - Respuesta del paciente (texto crudo)
  * @param {object} interpretacionAgudeza - Interpretación estructurada del agente
@@ -700,8 +732,15 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en test de agudeza
-  if (!testActual || testActual.tipo !== 'agudeza_inicial') {
+  if (!testActual || (testActual.tipo !== 'agudeza_inicial' && testActual.tipo !== 'agudeza_alcanzada')) {
     return { ok: false, error: 'No estamos en test de agudeza' };
+  }
+  
+  const esAgudezaAlcanzada = testActual.tipo === 'agudeza_alcanzada';
+  
+  // Si es agudeza_alcanzada, usar función específica
+  if (esAgudezaAlcanzada) {
+    return procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgudeza, estado, testActual.ojo);
   }
   
   const ojo = testActual.ojo;
@@ -742,20 +781,18 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
           confirmado: true
         };
         
-        // Guardar en secuencia
-        estadoExamen.secuenciaExamen.resultados[ojo].agudezaInicial = estado.logmarActual;
+        // Guardar en secuencia usando mapeo correcto
+        const campoResultado = mapearTipoTestAResultado(testActual.tipo);
+        if (campoResultado) {
+          estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = estado.logmarActual;
+        } else {
+          console.error(`❌ No se pudo mapear tipo de test a resultado: ${testActual.tipo}`);
+        }
         
         console.log(`✅ Agudeza confirmada para ${ojo}: logMAR ${estado.logmarActual}`);
         
         // Resetear estado de agudeza para el siguiente test
-        estado.ojo = null;
-        estado.logmarActual = null;
-        estado.letraActual = null;
-        estado.mejorLogmar = null;
-        estado.ultimoLogmarCorrecto = null;
-        estado.letrasUsadas = [];
-        estado.intentos = 0;
-        estado.confirmaciones = 0;
+        resetearEstadoAgudeza(estado);
         
         // Avanzar al siguiente test
         const siguienteTest = avanzarTest();
@@ -821,6 +858,200 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
 }
 
 /**
+ * Procesa respuesta del paciente en test de agudeza_alcanzada
+ * Lógica progresiva: baja desde agudeza_inicial hasta 0.0
+ * Similar a agudeza_inicial pero solo bajando (no subiendo)
+ * @param {string} respuestaPaciente - Respuesta del paciente
+ * @param {object} interpretacionAgudeza - Interpretación estructurada
+ * @param {object} estado - Estado de agudeza
+ * @param {string} ojo - 'R' o 'L'
+ * @returns {object} - Resultado del procesamiento
+ */
+function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgudeza, estado, ojo) {
+  const resultado = interpretacionAgudeza?.resultado || 'no_se';
+  const agudezaInicial = estado.agudezaInicialReferencia;
+  
+  console.log(`📊 Procesando agudeza_alcanzada (${ojo}):`, {
+    agudezaInicial,
+    logmarActual: estado.logmarActual,
+    ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+    confirmaciones: estado.confirmaciones,
+    resultado
+  });
+  
+  if (resultado === 'correcta') {
+    // Paciente ve correctamente
+    const esMismoLogMAR = estado.logmarActual === estado.ultimoLogmarCorrecto;
+    
+    // Actualizar último logMAR correcto
+    estado.ultimoLogmarCorrecto = estado.logmarActual;
+    estado.mejorLogmar = estado.mejorLogmar === null 
+      ? estado.logmarActual 
+      : Math.min(estado.mejorLogmar, estado.logmarActual);
+    
+    if (esMismoLogMAR && estado.ultimoLogmarCorrecto !== null) {
+      // Segunda confirmación en el mismo logMAR
+      estado.confirmaciones += 1;
+      
+      console.log(`✅ Confirmación ${estado.confirmaciones}/2 en logMAR ${estado.logmarActual}`);
+      
+      if (estado.confirmaciones >= 2) {
+        // Confirmado en este logMAR
+        // Si ya estamos en 0.0, guardar y terminar
+        if (estado.logmarActual === 0.0) {
+          const logmarFinal = 0.0;
+          
+          const campoResultado = mapearTipoTestAResultado('agudeza_alcanzada');
+          if (campoResultado) {
+            estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = logmarFinal;
+          }
+          
+          estadoExamen.agudezaVisual[ojo] = {
+            logmar: logmarFinal,
+            letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
+            confirmado: true
+          };
+          
+          console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (mejoró desde ${agudezaInicial})`);
+          
+          resetearEstadoAgudeza(estado);
+          
+          const siguienteTest = avanzarTest();
+          
+          return {
+            ok: true,
+            resultadoConfirmado: true,
+            logmarFinal,
+            mejorado: agudezaInicial > logmarFinal,
+            agudezaInicial,
+            siguienteTest
+          };
+        }
+        
+        // No estamos en 0.0, intentar bajar al siguiente logMAR más pequeño
+        const siguienteLogMAR = bajarLogMAR(estado.logmarActual);
+        
+        if (siguienteLogMAR < estado.logmarActual) {
+          // Hay un logMAR más pequeño disponible, bajar
+          estado.logmarActual = siguienteLogMAR;
+          estado.ultimoLogmarCorrecto = null; // Resetear para el nuevo logMAR
+          estado.confirmaciones = 0; // Empezar confirmaciones desde 0
+          
+          const nuevaLetra = generarLetraSloan([]); // Resetear letras usadas
+          estado.letraActual = nuevaLetra;
+          estado.letrasUsadas = [nuevaLetra];
+          
+          console.log(`⬇️ Bajando a logMAR ${siguienteLogMAR}`);
+          
+          return { ok: true, necesitaNuevaLetra: true };
+        } else {
+          // Ya estamos en el mínimo (0.0) o no podemos bajar más
+          // Guardar el resultado actual (esto puede pasar si volvimos al logMAR anterior)
+          const logmarFinal = estado.logmarActual;
+          
+          const campoResultado = mapearTipoTestAResultado('agudeza_alcanzada');
+          if (campoResultado) {
+            estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = logmarFinal;
+          }
+          
+          estadoExamen.agudezaVisual[ojo] = {
+            logmar: logmarFinal,
+            letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
+            confirmado: true
+          };
+          
+          console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (${agudezaInicial > logmarFinal ? 'mejoró desde' : agudezaInicial === logmarFinal ? 'igual que' : 'empeoró desde'} ${agudezaInicial})`);
+          
+          resetearEstadoAgudeza(estado);
+          
+          const siguienteTest = avanzarTest();
+          
+          return {
+            ok: true,
+            resultadoConfirmado: true,
+            logmarFinal,
+            mejorado: agudezaInicial > logmarFinal,
+            agudezaInicial,
+            siguienteTest
+          };
+        }
+      }
+      
+      // Aún no hay 2 confirmaciones, mostrar otra letra en el mismo logMAR
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
+      
+      return { ok: true, necesitaNuevaLetra: true };
+      
+    } else {
+      // Primera confirmación en este logMAR
+      estado.confirmaciones = 1;
+      
+      // Generar nueva letra para segunda confirmación
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas.push(nuevaLetra);
+      
+      return { ok: true, necesitaNuevaLetra: true };
+    }
+    
+  } else {
+    // Paciente NO ve correctamente
+    // Volver al logMAR anterior (donde sí veía) y confirmar ahí
+    
+    if (estado.ultimoLogmarCorrecto !== null) {
+      // Hay un logMAR anterior donde sí veía
+      const logmarAnterior = estado.ultimoLogmarCorrecto;
+      estado.logmarActual = logmarAnterior;
+      estado.ultimoLogmarCorrecto = null; // Resetear para empezar confirmaciones desde 0
+      estado.confirmaciones = 0; // Resetear confirmaciones
+      
+      const nuevaLetra = generarLetraSloan([]); // Resetear letras usadas
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas = [nuevaLetra];
+      
+      console.log(`⬇️ No ve en logMAR actual, volviendo a ${logmarAnterior} para confirmar`);
+      
+      return { ok: true, necesitaNuevaLetra: true };
+      
+    } else {
+      // No hay logMAR anterior (primera respuesta incorrecta)
+      // Esto no debería pasar si empezamos desde agudeza_inicial (donde ya veía)
+      // Pero por seguridad, volver a agudeza_inicial y confirmar ahí
+      estado.logmarActual = agudezaInicial;
+      estado.ultimoLogmarCorrecto = null; // Resetear para empezar confirmaciones desde 0
+      estado.confirmaciones = 0;
+      
+      const nuevaLetra = generarLetraSloan([]);
+      estado.letraActual = nuevaLetra;
+      estado.letrasUsadas = [nuevaLetra];
+      
+      console.log(`⚠️ Primera respuesta incorrecta, volviendo a agudeza_inicial: ${agudezaInicial}`);
+      
+      return { ok: true, necesitaNuevaLetra: true };
+    }
+  }
+}
+
+/**
+ * Resetea el estado de agudeza para el siguiente test
+ * @param {object} estado - Estado de agudeza a resetear
+ */
+function resetearEstadoAgudeza(estado) {
+  estado.ojo = null;
+  estado.logmarActual = null;
+  estado.letraActual = null;
+  estado.mejorLogmar = null;
+  estado.ultimoLogmarCorrecto = null;
+  estado.letrasUsadas = [];
+  estado.intentos = 0;
+  estado.confirmaciones = 0;
+  estado.esAgudezaAlcanzada = false;
+  estado.agudezaInicialReferencia = null;
+}
+
+/**
  * Genera pasos para ETAPA_2 (cálculo silencioso)
  * Esta etapa no genera pasos visibles, solo procesa internamente
  */
@@ -860,7 +1091,7 @@ function generarPasosEtapa4() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
   // Validar que estamos en test de agudeza
-  if (!testActual || testActual.tipo !== 'agudeza_inicial') {
+  if (!testActual || (testActual.tipo !== 'agudeza_inicial' && testActual.tipo !== 'agudeza_alcanzada')) {
     return {
       ok: false,
       error: 'No estamos en test de agudeza visual'
@@ -869,19 +1100,102 @@ function generarPasosEtapa4() {
   
   const ojo = testActual.ojo;
   const estado = estadoExamen.agudezaEstado;
+  const esAgudezaAlcanzada = testActual.tipo === 'agudeza_alcanzada';
   
   // Inicializar estado de agudeza si es la primera vez
   if (estado.ojo !== ojo || estado.logmarActual === null) {
     estado.ojo = ojo;
-    estado.logmarActual = 0.4; // Inicio con logMAR 0.4
-    estado.letraActual = 'H'; // Primera letra siempre 'H'
-    estado.mejorLogmar = null;
-    estado.ultimoLogmarCorrecto = null;
-    estado.letrasUsadas = ['H'];
-    estado.intentos = 0;
-    estado.confirmaciones = 0;
     
-    console.log(`🔍 Iniciando test de agudeza visual para ${ojo}`);
+    if (esAgudezaAlcanzada) {
+      // Lógica específica para agudeza_alcanzada
+      const agudezaInicial = estadoExamen.secuenciaExamen.resultados[ojo].agudezaInicial;
+      
+      if (agudezaInicial === null || agudezaInicial === undefined) {
+        return {
+          ok: false,
+          error: `No se encontró agudeza_inicial para ${ojo}. No se puede ejecutar agudeza_alcanzada.`
+        };
+      }
+      
+      // Empezar desde agudeza_inicial (no desde agudeza_inicial - 0.1)
+      // El algoritmo bajará progresivamente desde aquí hasta 0.0
+      estado.logmarActual = agudezaInicial;
+      estado.agudezaInicialReferencia = agudezaInicial; // Guardar referencia
+      estado.letraActual = 'H';
+      estado.mejorLogmar = null;
+      estado.ultimoLogmarCorrecto = null;
+      estado.letrasUsadas = ['H'];
+      estado.intentos = 0;
+      estado.confirmaciones = 0;
+      estado.esAgudezaAlcanzada = true; // Flag para diferenciar
+      
+      console.log(`🔍 Iniciando test de agudeza alcanzada para ${ojo}`);
+      console.log(`   Agudeza inicial: ${agudezaInicial}, Empezando desde: ${agudezaInicial}`);
+      
+      // Configurar foróptero con valores finales ANTES de mostrar TV
+      const valoresFinales = calcularValoresFinalesForoptero(ojo);
+      
+      // Generar pasos: Foróptero + Esperar + TV + Hablar
+      const pasos = [
+        {
+          tipo: 'foroptero',
+          orden: 1,
+          foroptero: {
+            [ojo]: {
+              esfera: valoresFinales.esfera,
+              cilindro: valoresFinales.cilindro,
+              angulo: valoresFinales.angulo,
+              occlusion: ojo === 'R' ? 'open' : 'close'
+            },
+            [ojo === 'R' ? 'L' : 'R']: {
+              occlusion: ojo === 'R' ? 'close' : 'open'
+            }
+          }
+        },
+        {
+          tipo: 'esperar_foroptero',
+          orden: 2
+        },
+        {
+          tipo: 'tv',
+          orden: 3,
+          letra: estado.letraActual,
+          logmar: estado.logmarActual
+        },
+        {
+          tipo: 'hablar',
+          orden: 4,
+          mensaje: 'Mirá la pantalla. Decime qué letra ves.'
+        }
+      ];
+      
+      return {
+        ok: true,
+        pasos,
+        contexto: {
+          etapa: 'ETAPA_4',
+          testActual,
+          agudezaEstado: {
+            logmarActual: estado.logmarActual,
+            letraActual: estado.letraActual,
+            agudezaInicialReferencia: estado.agudezaInicialReferencia
+          }
+        }
+      };
+      
+    } else {
+      // Lógica original para agudeza_inicial
+      estado.logmarActual = 0.4; // Inicio con logMAR 0.4
+      estado.letraActual = 'H'; // Primera letra siempre 'H'
+      estado.mejorLogmar = null;
+      estado.ultimoLogmarCorrecto = null;
+      estado.letrasUsadas = ['H'];
+      estado.intentos = 0;
+      estado.confirmaciones = 0;
+      estado.esAgudezaAlcanzada = false;
+      
+      console.log(`🔍 Iniciando test de agudeza visual inicial para ${ojo}`);
+    }
   }
   
   // Si el resultado ya está confirmado, avanzar al siguiente test
