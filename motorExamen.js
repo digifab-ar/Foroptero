@@ -4,7 +4,7 @@
  * State Machine que maneja toda la lógica del examen visual.
  * El agente solo ejecuta pasos, el backend decide TODO.
  * 
- * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV)
+ * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV) 
  * y solo retorna pasos de tipo "hablar" al agente. 
  */
 
