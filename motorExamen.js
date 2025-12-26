@@ -1,11 +1,11 @@
 /**
- * MOTOR DE EXAMEN VISUAL 
+ * MOTOR DE EXAMEN VISUAL
  * 
  * State Machine que maneja toda la lógica del examen visual.
  * El agente solo ejecuta pasos, el backend decide TODO.
  * 
- * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV) 
- * y solo retorna pasos de tipo "hablar" al agente. 
+ * FASE 1: El backend ejecuta comandos automáticamente (foróptero, TV)
+ * y solo retorna pasos de tipo "hablar" al agente.
  */
 
 // Importar funciones de ejecución interna desde server.js
@@ -506,6 +506,50 @@ export function aplicarRecalculoCilindrico(cilindro) {
   
   // Para valores fuera de los rangos definidos (ej: entre -0.25 y -0.50), mantener igual
   return cilindro;
+}
+
+/**
+ * Aplica las reglas de recálculo esférico según protocolo clínico
+ * @param {number} esfera - Valor esférico original
+ * @returns {number} - Valor esférico recalculado
+ */
+export function aplicarRecalculoEsferico(esfera) {
+  // Reglas de recálculo esférico (valores en saltos de 0.25, sin gaps):
+  // Valores negativos: mantener igual (no se aplican reglas)
+  // Valores positivos:
+  // 1. Hasta +1.25 inclusive → mantener igual
+  // 2. Entre +1.50 a +3.00 inclusive → restar 0.50
+  // 3. Entre +3.25 a +4.50 inclusive → restar 0.75
+  // 4. Desde +4.75 en adelante → restar 1.00
+  
+  // Valores negativos: mantener igual (no se aplican reglas de recálculo)
+  if (esfera < 0) {
+    return esfera;
+  }
+  
+  // Regla 1: Hasta +1.25 inclusive → mantener igual
+  if (esfera <= 1.25) {
+    return esfera;
+  }
+  
+  // Regla 2: Entre +1.50 a +3.00 inclusive → restar 0.50
+  if (esfera >= 1.50 && esfera <= 3.00) {
+    return esfera - 0.50;
+  }
+  
+  // Regla 3: Entre +3.25 a +4.50 inclusive → restar 0.75
+  if (esfera >= 3.25 && esfera <= 4.50) {
+    return esfera - 0.75;
+  }
+  
+  // Regla 4: Desde +4.75 en adelante → restar 1.00
+  if (esfera >= 4.75) {
+    return esfera - 1.00;
+  }
+  
+  // Por seguridad, retornar valor original si no aplica ninguna regla
+  // (esto no debería pasar con valores en saltos de 0.25)
+  return esfera;
 }
 
 /**
@@ -1056,10 +1100,15 @@ function resetearEstadoAgudeza(estado) {
  * Esta etapa no genera pasos visibles, solo procesa internamente
  */
 function generarPasosEtapa2() {
-  // Aplicar recálculo cilíndrico a ambos ojos
+  // Aplicar recálculo esférico y cilíndrico a ambos ojos
   const valoresR = { ...estadoExamen.valoresIniciales.R };
   const valoresL = { ...estadoExamen.valoresIniciales.L };
   
+  // Aplicar recálculo esférico
+  valoresR.esfera = aplicarRecalculoEsferico(valoresR.esfera);
+  valoresL.esfera = aplicarRecalculoEsferico(valoresL.esfera);
+  
+  // Aplicar recálculo cilíndrico
   valoresR.cilindro = aplicarRecalculoCilindrico(valoresR.cilindro);
   valoresL.cilindro = aplicarRecalculoCilindrico(valoresL.cilindro);
   
