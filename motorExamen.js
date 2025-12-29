@@ -1219,18 +1219,30 @@ function generarPasosEtapa4() {
     (!esAgudezaAlcanzada && estado.esAgudezaAlcanzada);   // Cambió de alcanzada a inicial
   
   // Detectar cambio de ojo específicamente (para agudeza_inicial)
-  const cambioDeOjo = estado.ojo !== null && estado.ojo !== ojo && !esAgudezaAlcanzada;
+  // Usar el test anterior de la secuencia en lugar del estado reseteado
+  const indiceAnterior = estadoExamen.secuenciaExamen.indiceActual - 1;
+  const testAnterior = indiceAnterior >= 0 
+    ? estadoExamen.secuenciaExamen.testsActivos[indiceAnterior]
+    : null;
+  
+  // Detectar cambio de ojo comparando con test anterior
+  const cambioDeOjo = testAnterior !== null && 
+                      testAnterior.ojo !== ojo && 
+                      !esAgudezaAlcanzada;
   
   console.log('🔧 [GENERAR_PASOS_ETAPA4] Evaluación de condiciones:', {
     necesitaInicializacion,
     cambioDeOjo,
     evaluacionCambioDeOjo: {
-      'estado.ojo !== null': estado.ojo !== null,
-      'estado.ojo': estado.ojo,
-      'estado.ojo !== ojo': estado.ojo !== ojo,
+      'testAnterior !== null': testAnterior !== null,
+      'testAnterior': testAnterior ? `${testAnterior.tipo} (${testAnterior.ojo})` : null,
+      'testAnterior.ojo !== ojo': testAnterior ? testAnterior.ojo !== ojo : false,
       '!esAgudezaAlcanzada': !esAgudezaAlcanzada,
       resultado: cambioDeOjo
-    }
+    },
+    // Mantener información del estado para debugging
+    estadoOjo: estado.ojo,
+    ojoTest: ojo
   });
   
   if (necesitaInicializacion) {
