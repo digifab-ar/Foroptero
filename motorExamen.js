@@ -667,22 +667,36 @@ function mapearTipoTestAEtapa(tipo) {
 export function avanzarTest() {
   const secuencia = estadoExamen.secuenciaExamen;
   
+  console.log('➡️ [AVANZAR_TEST] Estado ANTES de avanzar:', {
+    indiceActual: secuencia.indiceActual,
+    totalTests: secuencia.testsActivos.length,
+    testActual: secuencia.testActual,
+    etapa: estadoExamen.etapa
+  });
+  
   if (secuencia.indiceActual >= secuencia.testsActivos.length - 1) {
     // Se completó el examen
     estadoExamen.etapa = 'FINALIZADO';
     estadoExamen.finalizado = Date.now();
     secuencia.testActual = null;
+    console.log('➡️ [AVANZAR_TEST] Examen completado');
     return null;
   }
   
   // Avanzar al siguiente test
+  const testAnterior = secuencia.testActual;
   secuencia.indiceActual += 1;
   secuencia.testActual = secuencia.testsActivos[secuencia.indiceActual];
   
   // Actualizar etapa según el tipo de test siguiente
   if (secuencia.testActual) {
     estadoExamen.etapa = mapearTipoTestAEtapa(secuencia.testActual.tipo);
-    console.log(`➡️ Avanzando a test: ${secuencia.testActual.tipo} (${secuencia.testActual.ojo}) → Etapa: ${estadoExamen.etapa}`);
+    console.log(`➡️ [AVANZAR_TEST] Avanzando a test: ${secuencia.testActual.tipo} (${secuencia.testActual.ojo}) → Etapa: ${estadoExamen.etapa}`);
+    console.log('➡️ [AVANZAR_TEST] Cambio de ojo:', {
+      testAnterior: testAnterior ? `${testAnterior.tipo} (${testAnterior.ojo})` : 'null',
+      testActual: `${secuencia.testActual.tipo} (${secuencia.testActual.ojo})`,
+      cambioOjo: testAnterior && testAnterior.ojo !== secuencia.testActual.ojo
+    });
   }
   
   return secuencia.testActual;
@@ -958,9 +972,25 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
           
           console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (mejoró desde ${agudezaInicial})`);
           
+          console.log('🔍 [AGUDEZA_ALCANZADA] ANTES de resetear y avanzar:', {
+            ojoActual: ojo,
+            estadoOjo: estado.ojo,
+            testActual: estadoExamen.secuenciaExamen.testActual,
+            indiceActual: estadoExamen.secuenciaExamen.indiceActual
+          });
+          
           resetearEstadoAgudeza(estado);
           
           const siguienteTest = avanzarTest();
+          
+          console.log('🔍 [AGUDEZA_ALCANZADA] DESPUÉS de resetear y avanzar:', {
+            ojoAnterior: ojo,
+            estadoOjoDespuesReset: estado.ojo,
+            siguienteTest: siguienteTest,
+            testActual: estadoExamen.secuenciaExamen.testActual,
+            indiceActual: estadoExamen.secuenciaExamen.indiceActual,
+            etapa: estadoExamen.etapa
+          });
           
           return {
             ok: true,
@@ -1083,6 +1113,13 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
  * @param {object} estado - Estado de agudeza a resetear
  */
 function resetearEstadoAgudeza(estado) {
+  console.log('🔄 [RESET AGUDEZA] Estado ANTES de resetear:', {
+    ojo: estado.ojo,
+    logmarActual: estado.logmarActual,
+    letraActual: estado.letraActual,
+    esAgudezaAlcanzada: estado.esAgudezaAlcanzada
+  });
+  
   estado.ojo = null;
   estado.logmarActual = null;
   estado.letraActual = null;
@@ -1093,6 +1130,13 @@ function resetearEstadoAgudeza(estado) {
   estado.confirmaciones = 0;
   estado.esAgudezaAlcanzada = false;
   estado.agudezaInicialReferencia = null;
+  
+  console.log('🔄 [RESET AGUDEZA] Estado DESPUÉS de resetear:', {
+    ojo: estado.ojo,
+    logmarActual: estado.logmarActual,
+    letraActual: estado.letraActual,
+    esAgudezaAlcanzada: estado.esAgudezaAlcanzada
+  });
 }
 
 /**
@@ -1139,6 +1183,12 @@ function generarPasosEtapa2() {
 function generarPasosEtapa4() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
   
+  console.log('🔧 [GENERAR_PASOS_ETAPA4] INICIO:', {
+    testActual: testActual ? `${testActual.tipo} (${testActual.ojo})` : 'null',
+    etapa: estadoExamen.etapa,
+    indiceActual: estadoExamen.secuenciaExamen.indiceActual
+  });
+  
   // Validar que estamos en test de agudeza
   if (!testActual || (testActual.tipo !== 'agudeza_inicial' && testActual.tipo !== 'agudeza_alcanzada')) {
     return {
@@ -1151,6 +1201,15 @@ function generarPasosEtapa4() {
   const estado = estadoExamen.agudezaEstado;
   const esAgudezaAlcanzada = testActual.tipo === 'agudeza_alcanzada';
   
+  console.log('🔧 [GENERAR_PASOS_ETAPA4] Estado de agudeza:', {
+    ojoTest: ojo,
+    estadoOjo: estado.ojo,
+    logmarActual: estado.logmarActual,
+    letraActual: estado.letraActual,
+    esAgudezaAlcanzada: esAgudezaAlcanzada,
+    estadoEsAgudezaAlcanzada: estado.esAgudezaAlcanzada
+  });
+  
   // Inicializar estado de agudeza si es la primera vez O si cambió el tipo de test
   // Esto distingue entre agudeza_inicial y agudeza_alcanzada cuando es el mismo ojo
   const necesitaInicializacion = 
@@ -1161,6 +1220,18 @@ function generarPasosEtapa4() {
   
   // Detectar cambio de ojo específicamente (para agudeza_inicial)
   const cambioDeOjo = estado.ojo !== null && estado.ojo !== ojo && !esAgudezaAlcanzada;
+  
+  console.log('🔧 [GENERAR_PASOS_ETAPA4] Evaluación de condiciones:', {
+    necesitaInicializacion,
+    cambioDeOjo,
+    evaluacionCambioDeOjo: {
+      'estado.ojo !== null': estado.ojo !== null,
+      'estado.ojo': estado.ojo,
+      'estado.ojo !== ojo': estado.ojo !== ojo,
+      '!esAgudezaAlcanzada': !esAgudezaAlcanzada,
+      resultado: cambioDeOjo
+    }
+  });
   
   if (necesitaInicializacion) {
     estado.ojo = ojo;
@@ -1254,10 +1325,19 @@ function generarPasosEtapa4() {
       estado.esAgudezaAlcanzada = false;
       
       console.log(`🔍 Iniciando test de agudeza visual inicial para ${ojo}`);
+      console.log('🔧 [GENERAR_PASOS_ETAPA4] Evaluando cambio de ojo para agudeza_inicial:', {
+        cambioDeOjo,
+        estadoOjo: estado.ojo,
+        ojoTest: ojo,
+        valoresRecalculados: estadoExamen.valoresRecalculados[ojo]
+      });
       
       // Si hay cambio de ojo, configurar foróptero con valores recalculados
       if (cambioDeOjo) {
+        console.log('✅ [GENERAR_PASOS_ETAPA4] CAMBIO DE OJO DETECTADO - Configurando foróptero');
         const valoresRecalculados = estadoExamen.valoresRecalculados[ojo];
+        
+        console.log('🔧 [GENERAR_PASOS_ETAPA4] Valores recalculados para configurar:', valoresRecalculados);
         
         // Validar que los valores existen
         if (!valoresRecalculados || 
@@ -1309,6 +1389,12 @@ function generarPasosEtapa4() {
           }
         ];
         
+        console.log('✅ [GENERAR_PASOS_ETAPA4] Pasos generados para cambio de ojo:', {
+          cantidadPasos: pasos.length,
+          tiposPasos: pasos.map(p => p.tipo),
+          foropteroConfig: pasos.find(p => p.tipo === 'foroptero')?.foroptero
+        });
+        
         return {
           ok: true,
           pasos,
@@ -1324,10 +1410,29 @@ function generarPasosEtapa4() {
             }
           }
         };
+      } else {
+        console.log('⚠️ [GENERAR_PASOS_ETAPA4] NO se detectó cambio de ojo - Continuando con lógica normal (solo TV + Hablar)');
+        console.log('⚠️ [GENERAR_PASOS_ETAPA4] Razón:', {
+          estadoOjo: estado.ojo,
+          ojoTest: ojo,
+          esAgudezaAlcanzada,
+          evaluacion: {
+            'estado.ojo !== null': estado.ojo !== null,
+            'estado.ojo !== ojo': estado.ojo !== ojo,
+            '!esAgudezaAlcanzada': !esAgudezaAlcanzada
+          }
+        });
       }
       // Si no hay cambio de ojo, continuar con lógica normal (solo TV + Hablar)
     }
   }
+  
+  console.log('🔧 [GENERAR_PASOS_ETAPA4] Generando pasos normales (sin cambio de ojo):', {
+    estadoOjo: estadoExamen.agudezaEstado.ojo,
+    ojoTest: testActual.ojo,
+    logmarActual: estadoExamen.agudezaEstado.logmarActual,
+    letraActual: estadoExamen.agudezaEstado.letraActual
+  });
   
   // Si el resultado ya está confirmado, avanzar al siguiente test
   // Verificar que el test confirmado sea del mismo tipo que el test actual
