@@ -1278,9 +1278,22 @@ function generarPasosEtapa4() {
                       testAnterior.ojo !== ojo && 
                       !esAgudezaAlcanzada;
   
+  // Detectar cambio de tipo de test (lentes → agudeza) sin cambio de ojo
+  // Esto ocurre cuando se pasa de esférico/cilíndrico a agudeza en el mismo ojo
+  const cambioDeTipoTest = testAnterior !== null && 
+                           testAnterior.tipo !== testActual.tipo &&
+                           (testAnterior.tipo === 'esferico_grueso' || 
+                            testAnterior.tipo === 'esferico_fino' || 
+                            testAnterior.tipo === 'cilindrico' || 
+                            testAnterior.tipo === 'cilindrico_angulo') &&
+                           (testActual.tipo === 'agudeza_inicial' || 
+                            testActual.tipo === 'agudeza_alcanzada') &&
+                           testAnterior.ojo === ojo; // Mismo ojo
+  
   console.log('🔧 [GENERAR_PASOS_ETAPA4] Evaluación de condiciones:', {
     necesitaInicializacion,
     cambioDeOjo,
+    cambioDeTipoTest,
     evaluacionCambioDeOjo: {
       'testAnterior !== null': testAnterior !== null,
       'testAnterior': testAnterior ? `${testAnterior.tipo} (${testAnterior.ojo})` : null,
@@ -1335,10 +1348,10 @@ function generarPasosEtapa4() {
               esfera: valoresFinales.esfera,
               cilindro: valoresFinales.cilindro,
               angulo: valoresFinales.angulo,
-              occlusion: ojo === 'R' ? 'open' : 'close'
+              occlusion: 'open'
             },
             [ojo === 'R' ? 'L' : 'R']: {
-              occlusion: ojo === 'R' ? 'close' : 'open'
+              occlusion: 'close'
             }
           }
         },
@@ -1484,6 +1497,132 @@ function generarPasosEtapa4() {
         });
       }
       // Si no hay cambio de ojo, continuar con lógica normal (solo TV + Hablar)
+    }
+  }
+  
+  // Si cambió el tipo de test (lentes → agudeza) pero no necesita inicialización,
+  // configurar foróptero con valores correctos (sin cambiar oclusión si mismo ojo)
+  if (!necesitaInicializacion && cambioDeTipoTest) {
+    if (esAgudezaAlcanzada) {
+      // Configurar con valores finales
+      const valoresFinales = calcularValoresFinalesForoptero(ojo);
+      
+      console.log(`🔄 Cambio de tipo de test detectado (lentes → agudeza_alcanzada): configurando foróptero para ${ojo}`);
+      console.log(`   Valores finales:`, valoresFinales);
+      
+      const pasos = [
+        {
+          tipo: 'foroptero',
+          orden: 1,
+          foroptero: {
+            [ojo]: {
+              esfera: valoresFinales.esfera,
+              cilindro: valoresFinales.cilindro,
+              angulo: valoresFinales.angulo,
+              occlusion: 'open' // Ojo del test siempre 'open'
+            },
+            [ojo === 'R' ? 'L' : 'R']: {
+              occlusion: 'close' // Ojo opuesto siempre 'close'
+            }
+          }
+        },
+        {
+          tipo: 'esperar_foroptero',
+          orden: 2
+        },
+        {
+          tipo: 'tv',
+          orden: 3,
+          letra: estado.letraActual,
+          logmar: estado.logmarActual
+        },
+        {
+          tipo: 'hablar',
+          orden: 4,
+          mensaje: 'Mirá la pantalla. Decime qué letra ves.'
+        }
+      ];
+      
+      return {
+        ok: true,
+        pasos,
+        contexto: {
+          etapa: 'ETAPA_4',
+          testActual,
+          agudezaEstado: {
+            logmarActual: estado.logmarActual,
+            letraActual: estado.letraActual,
+            mejorLogmar: estado.mejorLogmar,
+            ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+            confirmaciones: estado.confirmaciones
+          }
+        }
+      };
+    } else {
+      // Configurar con valores recalculados para agudeza_inicial
+      const valoresRecalculados = estadoExamen.valoresRecalculados[ojo];
+      
+      if (!valoresRecalculados || 
+          valoresRecalculados.esfera === null || valoresRecalculados.esfera === undefined ||
+          valoresRecalculados.cilindro === null || valoresRecalculados.cilindro === undefined ||
+          valoresRecalculados.angulo === null || valoresRecalculados.angulo === undefined) {
+        return {
+          ok: false,
+          error: `No se encontraron valores recalculados para ${ojo}. No se puede iniciar agudeza_inicial.`
+        };
+      }
+      
+      console.log(`🔄 Cambio de tipo de test detectado (lentes → agudeza_inicial): configurando foróptero para ${ojo}`);
+      console.log(`   Valores recalculados:`, valoresRecalculados);
+      
+      const pasos = [
+        {
+          tipo: 'foroptero',
+          orden: 1,
+          foroptero: {
+            [ojo]: {
+              esfera: valoresRecalculados.esfera,
+              cilindro: valoresRecalculados.cilindro,
+              angulo: valoresRecalculados.angulo,
+              occlusion: 'open' // Ojo del test siempre 'open'
+            },
+            [ojo === 'R' ? 'L' : 'R']: {
+              occlusion: 'close' // Ojo opuesto siempre 'close'
+            }
+          }
+        },
+        {
+          tipo: 'esperar_foroptero',
+          orden: 2
+        },
+        {
+          tipo: 'tv',
+          orden: 3,
+          letra: estado.letraActual,
+          logmar: estado.logmarActual
+        },
+        {
+          tipo: 'hablar',
+          orden: 4,
+          mensaje: 'Mirá la pantalla. Decime qué letra ves.'
+        }
+      ];
+      
+      return {
+        ok: true,
+        pasos,
+        contexto: {
+          etapa: 'ETAPA_4',
+          testActual,
+          agudezaEstado: {
+            logmarActual: estado.logmarActual,
+            letraActual: estado.letraActual,
+            mejorLogmar: estado.mejorLogmar,
+            ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+            confirmaciones: estado.confirmaciones
+          }
+        }
+      };
     }
   }
   
