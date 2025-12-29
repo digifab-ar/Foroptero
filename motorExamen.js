@@ -1151,8 +1151,15 @@ function generarPasosEtapa4() {
   const estado = estadoExamen.agudezaEstado;
   const esAgudezaAlcanzada = testActual.tipo === 'agudeza_alcanzada';
   
-  // Inicializar estado de agudeza si es la primera vez
-  if (estado.ojo !== ojo || estado.logmarActual === null) {
+  // Inicializar estado de agudeza si es la primera vez O si cambió el tipo de test
+  // Esto distingue entre agudeza_inicial y agudeza_alcanzada cuando es el mismo ojo
+  const necesitaInicializacion = 
+    estado.ojo !== ojo || 
+    estado.logmarActual === null ||
+    (esAgudezaAlcanzada && !estado.esAgudezaAlcanzada) ||  // Cambió de inicial a alcanzada
+    (!esAgudezaAlcanzada && estado.esAgudezaAlcanzada);   // Cambió de alcanzada a inicial
+  
+  if (necesitaInicializacion) {
     estado.ojo = ojo;
     
     if (esAgudezaAlcanzada) {
@@ -1248,7 +1255,14 @@ function generarPasosEtapa4() {
   }
   
   // Si el resultado ya está confirmado, avanzar al siguiente test
-  if (estadoExamen.agudezaVisual[ojo]?.confirmado) {
+  // Verificar que el test confirmado sea del mismo tipo que el test actual
+  // Esto evita que se salte agudeza_alcanzada cuando agudeza_inicial está confirmado
+  const campoResultado = mapearTipoTestAResultado(testActual.tipo);
+  const resultadoConfirmado = campoResultado 
+    ? estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] !== null
+    : false;
+  
+  if (resultadoConfirmado) {
     const siguienteTest = avanzarTest();
     if (siguienteTest) {
       // avanzarTest() ya actualizó la etapa automáticamente
@@ -2584,6 +2598,13 @@ function confirmarResultado(valorFinal) {
   
   // Avanzar al siguiente test
   const siguienteTest = avanzarTest();
+  
+  // Si el siguiente test es agudeza_alcanzada, resetear estado de agudeza
+  // Esto asegura que el estado esté limpio para agudeza_alcanzada
+  // y evita problemas de inicialización cuando cambia de lentes a agudeza
+  if (siguienteTest && siguienteTest.tipo === 'agudeza_alcanzada') {
+    resetearEstadoAgudeza(estadoExamen.agudezaEstado);
+  }
   
   return {
     ok: true,
