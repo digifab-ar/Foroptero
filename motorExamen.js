@@ -1159,6 +1159,9 @@ function generarPasosEtapa4() {
     (esAgudezaAlcanzada && !estado.esAgudezaAlcanzada) ||  // Cambió de inicial a alcanzada
     (!esAgudezaAlcanzada && estado.esAgudezaAlcanzada);   // Cambió de alcanzada a inicial
   
+  // Detectar cambio de ojo específicamente (para agudeza_inicial)
+  const cambioDeOjo = estado.ojo !== null && estado.ojo !== ojo && !esAgudezaAlcanzada;
+  
   if (necesitaInicializacion) {
     estado.ojo = ojo;
     
@@ -1240,7 +1243,7 @@ function generarPasosEtapa4() {
       };
       
     } else {
-      // Lógica original para agudeza_inicial
+      // Lógica para agudeza_inicial
       estado.logmarActual = 0.4; // Inicio con logMAR 0.4
       estado.letraActual = 'H'; // Primera letra siempre 'H'
       estado.mejorLogmar = null;
@@ -1251,6 +1254,78 @@ function generarPasosEtapa4() {
       estado.esAgudezaAlcanzada = false;
       
       console.log(`🔍 Iniciando test de agudeza visual inicial para ${ojo}`);
+      
+      // Si hay cambio de ojo, configurar foróptero con valores recalculados
+      if (cambioDeOjo) {
+        const valoresRecalculados = estadoExamen.valoresRecalculados[ojo];
+        
+        // Validar que los valores existen
+        if (!valoresRecalculados || 
+            valoresRecalculados.esfera === null || valoresRecalculados.esfera === undefined ||
+            valoresRecalculados.cilindro === null || valoresRecalculados.cilindro === undefined ||
+            valoresRecalculados.angulo === null || valoresRecalculados.angulo === undefined) {
+          return {
+            ok: false,
+            error: `No se encontraron valores recalculados para ${ojo}. No se puede iniciar agudeza_inicial.`
+          };
+        }
+        
+        console.log(`🔄 Cambio de ojo detectado: configurando foróptero para ${ojo}`);
+        console.log(`   Valores recalculados:`, valoresRecalculados);
+        
+        // Generar pasos: Foróptero + Esperar + TV + Hablar
+        const pasos = [
+          {
+            tipo: 'foroptero',
+            orden: 1,
+            foroptero: {
+              [ojo]: {
+                esfera: valoresRecalculados.esfera,
+                cilindro: valoresRecalculados.cilindro,
+                angulo: valoresRecalculados.angulo,
+                occlusion: 'open'
+              },
+              [ojo === 'R' ? 'L' : 'R']: {
+                occlusion: 'close'
+              }
+            }
+          },
+          {
+            tipo: 'esperar_foroptero',
+            orden: 2
+          },
+          {
+            tipo: 'tv',
+            orden: 3,
+            letra: estado.letraActual,
+            logmar: estado.logmarActual
+          },
+          {
+            tipo: 'hablar',
+            orden: 4,
+            mensaje: ojo === 'L' 
+              ? 'Ahora vamos con el ojo izquierdo. Esperemos a que se terminen de ajustar los lentes y avisame cuando estés listo.'
+              : 'Vamos a empezar con el ojo derecho. Esperemos a que se terminen de ajustar los lentes y avisame cuando estés listo.'
+          }
+        ];
+        
+        return {
+          ok: true,
+          pasos,
+          contexto: {
+            etapa: 'ETAPA_4',
+            testActual,
+            agudezaEstado: {
+              logmarActual: estado.logmarActual,
+              letraActual: estado.letraActual,
+              mejorLogmar: estado.mejorLogmar,
+              ultimoLogmarCorrecto: estado.ultimoLogmarCorrecto,
+              confirmaciones: estado.confirmaciones
+            }
+          }
+        };
+      }
+      // Si no hay cambio de ojo, continuar con lógica normal (solo TV + Hablar)
     }
   }
   
