@@ -1110,7 +1110,12 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
       // Primera confirmación en este logMAR
       estado.confirmaciones = 1;
       
-      // Generar nueva letra para segunda confirmación
+      // Bajar logMAR inmediatamente (igual que agudeza_inicial)
+      if (estado.logmarActual > 0.0) {
+        estado.logmarActual = bajarLogMAR(estado.logmarActual);
+      }
+      
+      // Generar nueva letra
       const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
       estado.letraActual = nuevaLetra;
       estado.letrasUsadas.push(nuevaLetra);
