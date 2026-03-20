@@ -1770,8 +1770,11 @@ function generarPasosEtapa3() {
   // Verificar si ya se generaron los pasos de ETAPA_3
   // Si ya se generaron, no volver a generarlos (evitar loop)
   if (estadoExamen.subEtapa === 'FOROPTERO_CONFIGURADO') {
-    // Ya se configuró el foróptero, pasar a ETAPA_4
-    estadoExamen.etapa = 'ETAPA_4';
+    // Ya se configuró el foróptero, pasar a la etapa que corresponda al test actual
+    const etapaSiguiente = estadoExamen.secuenciaExamen.testActual
+      ? mapearTipoTestAEtapa(estadoExamen.secuenciaExamen.testActual.tipo)
+      : 'ETAPA_4';
+    estadoExamen.etapa = etapaSiguiente;
     estadoExamen.ojoActual = estadoExamen.secuenciaExamen.testActual?.ojo || 'R';
     
     // Retornar pasos vacíos para que el agente espere respuesta
@@ -1780,7 +1783,7 @@ function generarPasosEtapa3() {
       ok: true,
       pasos: [],
       contexto: {
-        etapa: 'ETAPA_4',
+        etapa: estadoExamen.etapa,
         testActual: estadoExamen.secuenciaExamen.testActual
       }
     };
@@ -1815,8 +1818,11 @@ function generarPasosEtapa3() {
   // 5. Establecer ojo actual según el primer test
   estadoExamen.ojoActual = estadoExamen.secuenciaExamen.testActual?.ojo || 'R';
   
-  // 6. Pasar a ETAPA_4 (el primer test se ejecutará en Etapa 4)
-  estadoExamen.etapa = 'ETAPA_4';
+  // 6. Pasar a la etapa correspondiente al primer test
+  const etapaSiguiente = estadoExamen.secuenciaExamen.testActual
+    ? mapearTipoTestAEtapa(estadoExamen.secuenciaExamen.testActual.tipo)
+    : 'ETAPA_4';
+  estadoExamen.etapa = etapaSiguiente;
   
   return {
     ok: true,
@@ -1848,7 +1854,7 @@ function generarPasosEtapa3() {
       }
     ],
     contexto: {
-      etapa: 'ETAPA_4',
+      etapa: estadoExamen.etapa,
       testActual: estadoExamen.secuenciaExamen.testActual,
       totalTests: secuencia.length,
       indiceActual: 0
