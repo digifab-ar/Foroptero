@@ -169,9 +169,12 @@ let estadoExamen = {
 /**
  * Inicializa el examen (resetea todo el estado)
  */
-export function inicializarExamen() {
+export function inicializarExamen(modo = 'normal') {
+  const modosPermitidos = ['normal', 'testag', 'testesf', 'testcil', 'testbin'];
+  const modoInicial = modosPermitidos.includes(modo) ? modo : 'normal';
+
   estadoExamen = {
-    modo: 'normal',
+    modo: modoInicial,
     sessionId: null,
     etapa: 'INICIO',
     subEtapa: null,
@@ -280,7 +283,7 @@ export function inicializarExamen() {
     finalizado: null
   };
   
-  console.log('✅ Examen inicializado');
+  console.log(`✅ Examen inicializado (modo: ${modoInicial})`);
   return estadoExamen;
 }
 
@@ -387,40 +390,6 @@ function procesarRespuestaEtapa1(respuestaPaciente) {
   const validacion = validarValoresIniciales(respuestaPaciente);
   
   if (!validacion.valido) {
-    // Si no son valores válidos, comprobar comandos de test de prueba
-    const comando = respuestaPaciente?.trim();
-    if (comando === 'testag' || comando === 'testesf' || comando === 'testcil' || comando === 'testbin') {
-      estadoExamen.modo = comando;
-      console.log(`✅ Modo de examen de prueba activado: ${comando}`);
-
-      let mensajeModo = '';
-      switch (comando) {
-        case 'testag':
-          mensajeModo = 'Vamos a hacer un test de prueba de agudeza visual en ambos ojos.';
-          break;
-        case 'testesf':
-          mensajeModo = 'Vamos a hacer un test de prueba de lentes esféricos (grueso y fino) en ambos ojos.';
-          break;
-        case 'testcil':
-          mensajeModo = 'Vamos a hacer un test de prueba de lentes cilíndricos en ambos ojos.';
-          break;
-        case 'testbin':
-          mensajeModo = 'Vamos a hacer un test de prueba binocular.';
-          break;
-      }
-
-      return {
-        ok: true,
-        pasos: [
-          {
-            tipo: 'hablar',
-            orden: 1,
-            mensaje: `${mensajeModo} Ahora escribí los valores del autorefractómetro. Ejemplo: <R> +0.75 , -1.75 , 60 / <L> +2.75 , 0.00 , 0`
-          }
-        ]
-      };
-    }
-
     // Generar pasos de error de formato
     return {
       ok: true,
