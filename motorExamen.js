@@ -2662,6 +2662,7 @@ function generarPasosMostrarLenteCilindricoAngulo(ojo, valorAngulo, letra, logma
  */
 function generarPasosEtapa5() {
   const testActual = estadoExamen.secuenciaExamen.testActual;
+  const mensajePreguntaComparacion = 'Ves mejor con este o con el anterior?';
   
   // Validar que estamos en test de lentes
   if (!testActual || (testActual.tipo !== 'esferico_grueso' && testActual.tipo !== 'esferico_fino' && testActual.tipo !== 'cilindrico' && testActual.tipo !== 'cilindrico_angulo')) {
@@ -2730,9 +2731,7 @@ function generarPasosEtapa5() {
   
   // Generar pasos según la fase de comparación
   if (estado.faseComparacion === 'iniciando') {
-    // Fase inicial: mensaje introductorio + mostrar valorMas
-    // NOTA: Para esférico fino, cilíndrico y cilíndrico ángulo, no mencionamos que es un test diferente, es parte del flujo continuo
-    // Solo mostrar mensaje introductorio en esférico grueso (primera vez)
+    // Fase inicial: mensaje introductorio (solo esférico grueso) + mostrar valorMas + pregunta estándar
     let ordenInicial = 1;
     if (tipo === 'esferico_grueso') {
       pasos.push({
@@ -2741,7 +2740,6 @@ function generarPasosEtapa5() {
         mensaje: 'Ahora te voy a mostrar otro lente y me vas a decir si ves mejor o peor'
       });
     }
-    // Para esférico fino, cilíndrico y cilíndrico ángulo, continuamos directamente sin mensaje adicional (es parte del flujo)
     
     // Generar pasos para mostrar valorMas según el tipo de test
     let pasosMostrar;
@@ -2774,22 +2772,34 @@ function generarPasosEtapa5() {
     estado.valorAnterior = estado.valorBase;
     estado.valoresProbados.mas = true;
     estado.faseComparacion = 'preguntando';
+
+    pasos.push({
+      tipo: 'hablar',
+      orden: pasos.length + 1,
+      mensaje: mensajePreguntaComparacion
+    });
     
   } else if (estado.faseComparacion === 'mostrando_alternativo') {
     // Ya se mostró un alternativo, preguntar preferencia
     pasos.push({
       tipo: 'hablar',
       orden: 1,
-      mensaje: 'Ves mejor con este o con el anterior?'
+      mensaje: mensajePreguntaComparacion
     });
     
     estado.faseComparacion = 'preguntando';
     
   } else if (estado.faseComparacion === 'preguntando') {
-    // Esperando respuesta, no generar pasos
+    // Mantener contrato conversacional: en ETAPA_5 siempre retornar al menos un mensaje
     return {
       ok: true,
-      pasos: [],
+      pasos: [
+        {
+          tipo: 'hablar',
+          orden: 1,
+          mensaje: mensajePreguntaComparacion
+        }
+      ],
       contexto: {
         etapa: 'ETAPA_5',
         testActual,
