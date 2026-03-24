@@ -1029,8 +1029,7 @@ function procesarRespuestaAgudeza(respuestaPaciente, interpretacionAgudeza) {
 
 /**
  * Procesa respuesta del paciente en test de agudeza_alcanzada
- * Lógica progresiva: baja desde agudeza_inicial hasta 0.0
- * Similar a agudeza_inicial pero solo bajando (no subiendo)
+ * Misma lógica que agudeza_inicial, pero iniciando desde agudeza_inicial del ojo
  * @param {string} respuestaPaciente - Respuesta del paciente
  * @param {object} interpretacionAgudeza - Interpretación estructurada
  * @param {object} estado - Estado de agudeza
@@ -1060,107 +1059,39 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
       : Math.min(estado.mejorLogmar, estado.logmarActual);
     
     if (esMismoLogMAR && estado.ultimoLogmarCorrecto !== null) {
-      // Segunda confirmación en el mismo logMAR
       estado.confirmaciones += 1;
       
       console.log(`✅ Confirmación ${estado.confirmaciones}/2 en logMAR ${estado.logmarActual}`);
       
       if (estado.confirmaciones >= 2) {
-        // Confirmado en este logMAR
-        // Si ya estamos en 0.0, guardar y terminar
-        if (estado.logmarActual === 0.0) {
-          const logmarFinal = 0.0;
-          
-          const campoResultado = mapearTipoTestAResultado('agudeza_alcanzada');
-          if (campoResultado) {
-            estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = logmarFinal;
-          }
-          
-          estadoExamen.agudezaVisual[ojo] = {
-            logmar: logmarFinal,
-            letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
-            confirmado: true
-          };
-          
-          console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (mejoró desde ${agudezaInicial})`);
-          
-          console.log('🔍 [AGUDEZA_ALCANZADA] ANTES de resetear y avanzar:', {
-            ojoActual: ojo,
-            estadoOjo: estado.ojo,
-            testActual: estadoExamen.secuenciaExamen.testActual,
-            indiceActual: estadoExamen.secuenciaExamen.indiceActual
-          });
-          
-          resetearEstadoAgudeza(estado);
-          
-          const siguienteTest = avanzarTest();
-          
-          console.log('🔍 [AGUDEZA_ALCANZADA] DESPUÉS de resetear y avanzar:', {
-            ojoAnterior: ojo,
-            estadoOjoDespuesReset: estado.ojo,
-            siguienteTest: siguienteTest,
-            testActual: estadoExamen.secuenciaExamen.testActual,
-            indiceActual: estadoExamen.secuenciaExamen.indiceActual,
-            etapa: estadoExamen.etapa
-          });
-          
-          return {
-            ok: true,
-            resultadoConfirmado: true,
-            logmarFinal,
-            mejorado: agudezaInicial > logmarFinal,
-            agudezaInicial,
-            siguienteTest
-          };
+        // Guardar resultado con 2 confirmaciones (misma regla que agudeza_inicial)
+        const logmarFinal = estado.logmarActual;
+        
+        const campoResultado = mapearTipoTestAResultado('agudeza_alcanzada');
+        if (campoResultado) {
+          estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = logmarFinal;
         }
         
-        // No estamos en 0.0, intentar bajar al siguiente logMAR más pequeño
-        const siguienteLogMAR = bajarLogMAR(estado.logmarActual);
+        estadoExamen.agudezaVisual[ojo] = {
+          logmar: logmarFinal,
+          letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
+          confirmado: true
+        };
         
-        if (siguienteLogMAR < estado.logmarActual) {
-          // Hay un logMAR más pequeño disponible, bajar
-          estado.logmarActual = siguienteLogMAR;
-          estado.ultimoLogmarCorrecto = null; // Resetear para el nuevo logMAR
-          estado.confirmaciones = 0; // Empezar confirmaciones desde 0
-          
-          const nuevaLetra = generarLetraSloan([]); // Resetear letras usadas
-          estado.letraActual = nuevaLetra;
-          estado.letrasUsadas = [nuevaLetra];
-          
-          console.log(`⬇️ Bajando a logMAR ${siguienteLogMAR}`);
-          
-          return { ok: true, necesitaNuevaLetra: true };
-        } else {
-          // Ya estamos en el mínimo (0.0) o no podemos bajar más
-          // Guardar el resultado actual (esto puede pasar si volvimos al logMAR anterior)
-          const logmarFinal = estado.logmarActual;
-          
-          const campoResultado = mapearTipoTestAResultado('agudeza_alcanzada');
-          if (campoResultado) {
-            estadoExamen.secuenciaExamen.resultados[ojo][campoResultado] = logmarFinal;
-          }
-          
-          estadoExamen.agudezaVisual[ojo] = {
-            logmar: logmarFinal,
-            letra: interpretacionAgudeza.letraIdentificada || estado.letraActual,
-            confirmado: true
-          };
-          
-          console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (${agudezaInicial > logmarFinal ? 'mejoró desde' : agudezaInicial === logmarFinal ? 'igual que' : 'empeoró desde'} ${agudezaInicial})`);
-          
-          resetearEstadoAgudeza(estado);
-          
-          const siguienteTest = avanzarTest();
-          
-          return {
-            ok: true,
-            resultadoConfirmado: true,
-            logmarFinal,
-            mejorado: agudezaInicial > logmarFinal,
-            agudezaInicial,
-            siguienteTest
-          };
-        }
+        console.log(`✅ Agudeza alcanzada confirmada para ${ojo}: logMAR ${logmarFinal} (${agudezaInicial > logmarFinal ? 'mejoró desde' : agudezaInicial === logmarFinal ? 'igual que' : 'empeoró desde'} ${agudezaInicial})`);
+        
+        resetearEstadoAgudeza(estado);
+        
+        const siguienteTest = avanzarTest();
+        
+        return {
+          ok: true,
+          resultadoConfirmado: true,
+          logmarFinal,
+          mejorado: agudezaInicial > logmarFinal,
+          agudezaInicial,
+          siguienteTest
+        };
       }
       
       // Aún no hay 2 confirmaciones, mostrar otra letra en el mismo logMAR
@@ -1171,10 +1102,10 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
       return { ok: true, necesitaNuevaLetra: true };
       
     } else {
-      // Primera confirmación en este logMAR
+      // Nuevo logMAR o primera respuesta correcta
       estado.confirmaciones = 1;
       
-      // Bajar logMAR inmediatamente (igual que agudeza_inicial)
+      // Bajar logMAR (si no está en 0.0)
       if (estado.logmarActual > 0.0) {
         estado.logmarActual = bajarLogMAR(estado.logmarActual);
       }
@@ -1189,36 +1120,30 @@ function procesarRespuestaAgudezaAlcanzada(respuestaPaciente, interpretacionAgud
     
   } else {
     // Paciente NO ve correctamente
-    // Volver al logMAR anterior (donde sí veía) y confirmar ahí
     
     if (estado.ultimoLogmarCorrecto !== null) {
-      // Hay un logMAR anterior donde sí veía
-      const logmarAnterior = estado.ultimoLogmarCorrecto;
-      estado.logmarActual = logmarAnterior;
-      estado.ultimoLogmarCorrecto = null; // Resetear para empezar confirmaciones desde 0
-      estado.confirmaciones = 0; // Resetear confirmaciones
+      // Volver al último correcto (misma regla que agudeza_inicial)
+      estado.logmarActual = estado.ultimoLogmarCorrecto;
+      estado.confirmaciones = 0;
       
-      const nuevaLetra = generarLetraSloan([]); // Resetear letras usadas
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
       estado.letraActual = nuevaLetra;
-      estado.letrasUsadas = [nuevaLetra];
+      estado.letrasUsadas.push(nuevaLetra);
       
-      console.log(`⬇️ No ve en logMAR actual, volviendo a ${logmarAnterior} para confirmar`);
+      console.log(`⬇️ No ve en logMAR actual, volviendo a ${estado.logmarActual} para confirmar`);
       
       return { ok: true, necesitaNuevaLetra: true };
       
     } else {
-      // No hay logMAR anterior (primera respuesta incorrecta)
-      // Esto no debería pasar si empezamos desde agudeza_inicial (donde ya veía)
-      // Pero por seguridad, volver a agudeza_inicial y confirmar ahí
-      estado.logmarActual = agudezaInicial;
-      estado.ultimoLogmarCorrecto = null; // Resetear para empezar confirmaciones desde 0
+      // Primera respuesta incorrecta sin logMAR correcto previo: subir (misma regla que agudeza_inicial)
+      estado.logmarActual = subirLogMAR(estado.logmarActual);
       estado.confirmaciones = 0;
       
-      const nuevaLetra = generarLetraSloan([]);
+      const nuevaLetra = generarLetraSloan(estado.letrasUsadas);
       estado.letraActual = nuevaLetra;
-      estado.letrasUsadas = [nuevaLetra];
+      estado.letrasUsadas.push(nuevaLetra);
       
-      console.log(`⚠️ Primera respuesta incorrecta, volviendo a agudeza_inicial: ${agudezaInicial}`);
+      console.log(`⬆️ Primera respuesta incorrecta sin logMAR correcto previo, subiendo a ${estado.logmarActual}`);
       
       return { ok: true, necesitaNuevaLetra: true };
     }
@@ -1390,7 +1315,7 @@ function generarPasosEtapa4() {
       }
       
       // Empezar desde agudeza_inicial (no desde agudeza_inicial - 0.1)
-      // El algoritmo bajará progresivamente desde aquí hasta 0.0
+      // A partir de acá usa la misma lógica de confirmación de agudeza_inicial
       estado.logmarActual = agudezaInicial;
       estado.agudezaInicialReferencia = agudezaInicial; // Guardar referencia
       estado.letraActual = 'H';
