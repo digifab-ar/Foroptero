@@ -3087,18 +3087,25 @@ function confirmarResultado(valorFinal) {
  */
 function iniciarBinocular() {
   const resultados = estadoExamen.secuenciaExamen.resultados;
+  const valoresRecalculados = estadoExamen.valoresRecalculados;
   
-  // Obtener valores esféricos finales de cada ojo (SOLO esfericoFino)
-  const esferaR = resultados.R.esfericoFino;
-  const esferaL = resultados.L.esfericoFino;
+  // Obtener valores esféricos finales con fallback:
+  // 1) esfericoFino, 2) esfericoGrueso, 3) valor recalculado
+  // Esto permite ejecutar testbin aunque no se hayan corrido tests esféricos previos.
+  const esferaR = resultados.R.esfericoFino
+    ?? resultados.R.esfericoGrueso
+    ?? valoresRecalculados.R.esfera;
+  const esferaL = resultados.L.esfericoFino
+    ?? resultados.L.esfericoGrueso
+    ?? valoresRecalculados.L.esfera;
   
-  // Validar que existen valores de esfericoFino
+  // Validar que existen valores esféricos para ambos ojos
   if (esferaR === null || esferaR === undefined) {
-    return { ok: false, error: 'No se encontró resultado de esférico fino para ojo R' };
+    return { ok: false, error: 'No se encontró valor esférico para ojo R' };
   }
   
   if (esferaL === null || esferaL === undefined) {
-    return { ok: false, error: 'No se encontró resultado de esférico fino para ojo L' };
+    return { ok: false, error: 'No se encontró valor esférico para ojo L' };
   }
   
   // Obtener logMAR máximo para TV
