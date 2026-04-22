@@ -2784,6 +2784,13 @@ function interpretarPreferenciaLente(respuestaPaciente, interpretacionComparacio
   if (texto.includes('igual') || texto.includes('iguales')) {
     return 'igual';
   }
+
+  if (texto.includes('veo mejor') || /(^|\s)mejor(\s|\.|!)?$/i.test(texto.trim())) {
+    return 'actual';
+  }
+  if (texto.includes('veo peor')) {
+    return 'anterior';
+  }
   
   return null;
 }
@@ -3092,17 +3099,17 @@ const SPH_MAX = 16.5;
 const CYL_MIN = -6;
 const CYL_MAX = 0;
 
-const FB_ESF_BASE = 'binoc_esfera_mostrar_base';
-const FB_ESF_VAR = 'binoc_esfera_mostrar_variante';
+const FB_ESF_MOSTRAR = 'binoc_esfera_aplicar_variante';
 const FB_ESF_PREG = 'binoc_esfera_preguntando';
-const FB_CIL_BASE = 'binoc_cil_mostrar_base';
-const FB_CIL_VAR = 'binoc_cil_mostrar_variante';
+const FB_CIL_MOSTRAR = 'binoc_cil_aplicar_variante';
 const FB_CIL_PREG = 'binoc_cil_preguntando';
 const FB_TRANS_LISTO = 'binoc_transicion_esperando_listo';
 
 const MSG_BINOC_PRE_CAMBIO =
   'Ahora vamos a usar otro par de lentes, y me vas a decir si ves mejor o peor.';
 const MSG_BINOC_PREGUNTA = '¿Ves mejor con la configuración anterior o con la actual?';
+/** Un solo turno: variante ya aplicada; el paciente compara con la configuración previa. */
+const MSG_BINOC_PREGUNTA_COMBINADA = `${MSG_BINOC_PRE_CAMBIO} ${MSG_BINOC_PREGUNTA}`;
 const MSG_BINOC_TRANSICION =
   'Ahora vamos a ver con ambos ojos, tomate tu tiempo y avisame cuando estés listo.';
 const MSG_BINOC_REINTENTO_LISTO =
@@ -3375,17 +3382,7 @@ function generarPasosEtapa6() {
     pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
     pasos.push(tvPaso(3));
     pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_TRANSICION });
-  } else if (fase === FB_ESF_BASE) {
-    pasos.push({
-      tipo: 'foroptero',
-      orden: 1,
-      foroptero: foropteroDesdeRx(estadoActual.rxBasePaso)
-    });
-    pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
-    pasos.push(tvPaso(3));
-    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PRE_CAMBIO });
-    estadoActual.faseBinocular = FB_ESF_VAR;
-  } else if (fase === FB_ESF_VAR) {
+  } else if (fase === FB_ESF_MOSTRAR) {
     pasos.push({
       tipo: 'foroptero',
       orden: 1,
@@ -3393,7 +3390,7 @@ function generarPasosEtapa6() {
     });
     pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
     pasos.push(tvPaso(3));
-    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PREGUNTA });
+    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PREGUNTA_COMBINADA });
     estadoActual.faseBinocular = FB_ESF_PREG;
   } else if (fase === FB_ESF_PREG) {
     return {
@@ -3405,17 +3402,7 @@ function generarPasosEtapa6() {
         binocularEstado: contextoBinocularResumido(estadoActual)
       }
     };
-  } else if (fase === FB_CIL_BASE) {
-    pasos.push({
-      tipo: 'foroptero',
-      orden: 1,
-      foroptero: foropteroDesdeRx(estadoActual.rxBasePaso)
-    });
-    pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
-    pasos.push(tvPaso(3));
-    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PRE_CAMBIO });
-    estadoActual.faseBinocular = FB_CIL_VAR;
-  } else if (fase === FB_CIL_VAR) {
+  } else if (fase === FB_CIL_MOSTRAR) {
     pasos.push({
       tipo: 'foroptero',
       orden: 1,
@@ -3423,7 +3410,7 @@ function generarPasosEtapa6() {
     });
     pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
     pasos.push(tvPaso(3));
-    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PREGUNTA });
+    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_PREGUNTA_COMBINADA });
     estadoActual.faseBinocular = FB_CIL_PREG;
   } else if (fase === FB_CIL_PREG) {
     return {
@@ -3461,7 +3448,7 @@ function procesarRespuestaBinocular(respuestaPaciente, interpretacionComparacion
 
   if (estado.faseBinocular === FB_TRANS_LISTO) {
     if (esRespuestaContinuidadBinocular(respuestaPaciente)) {
-      estado.faseBinocular = FB_ESF_BASE;
+      estado.faseBinocular = FB_ESF_MOSTRAR;
       return { ok: true, necesitaMostrarLente: true };
     }
     return {
@@ -3507,7 +3494,7 @@ function procesarRespuestaBinocular(respuestaPaciente, interpretacionComparacion
     estado.rxBasePaso = copiarRxPar(estado.rxActiva);
     estado.rxVariante = aplicarVarianteCilindrica(estado.rxBasePaso);
     estado.paso = 'cilindro';
-    estado.faseBinocular = FB_CIL_BASE;
+    estado.faseBinocular = FB_CIL_MOSTRAR;
     return { ok: true, necesitaMostrarLente: true };
   }
 
