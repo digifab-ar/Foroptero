@@ -1956,8 +1956,9 @@ export async function obtenerInstrucciones(respuestaPaciente = null, interpretac
       }
     }
     
-    // Si estamos en ETAPA_6 y hay interpretación de comparación, procesarla
-    if (estadoExamen.etapa === 'ETAPA_6' && interpretacionComparacion) {
+    // Si estamos en ETAPA_6, procesar respuesta binocular
+    // Nota: en la transición inicial ("avisame cuando estés listo") no requiere interpretacionComparacion.
+    if (estadoExamen.etapa === 'ETAPA_6') {
       const resultado = procesarRespuestaBinocular(respuestaPaciente, interpretacionComparacion);
       
       if (!resultado.ok) {
@@ -1981,6 +1982,23 @@ export async function obtenerInstrucciones(respuestaPaciente = null, interpretac
           contexto: pasos.contexto || {
             etapa: estadoExamen.etapa,
             testActual: estadoExamen.secuenciaExamen.testActual
+          }
+        };
+      }
+
+      // Si devolvió pasos directos (ej: repregunta de transición), retornarlos
+      if (resultado.pasos) {
+        await ejecutarPasosAutomaticamente(resultado.pasos || []);
+
+        const pasosParaAgente = (resultado.pasos || []).filter(p => p.tipo === 'hablar');
+
+        return {
+          ok: true,
+          pasos: pasosParaAgente,
+          contexto: {
+            etapa: estadoExamen.etapa,
+            testActual: estadoExamen.secuenciaExamen.testActual,
+            binocularEstado: contextoBinocularResumido(estadoExamen.binocularEstado)
           }
         };
       }
@@ -3080,13 +3098,36 @@ const FB_ESF_PREG = 'binoc_esfera_preguntando';
 const FB_CIL_BASE = 'binoc_cil_mostrar_base';
 const FB_CIL_VAR = 'binoc_cil_mostrar_variante';
 const FB_CIL_PREG = 'binoc_cil_preguntando';
+const FB_TRANS_LISTO = 'binoc_transicion_esperando_listo';
 
 const MSG_BINOC_PRE_CAMBIO =
   'Ahora vamos a usar otro par de lentes, y me vas a decir si ves mejor o peor.';
 const MSG_BINOC_PREGUNTA = '¿Ves mejor con la configuración anterior o con la actual?';
+const MSG_BINOC_TRANSICION =
+  'Ahora vamos a ver con ambos ojos, tomate tu tiempo y avisame cuando estés listo.';
+const MSG_BINOC_REINTENTO_LISTO =
+  'Tomate unos segundos mas. Cuando quieras seguimos; decime "listo".';
 
 function binocResultadoCompleto(b) {
   return b != null && typeof b === 'object' && b.esfera !== null && b.esfera !== undefined;
+}
+
+function esRespuestaContinuidadBinocular(respuestaPaciente = '') {
+  const t = String(respuestaPaciente || '').toLowerCase().trim();
+  if (!t) return false;
+
+  const patrones = [
+    /\blisto\b/,
+    /\bcontinu(ar|emos)?\b/,
+    /\bok\b/,
+    /\bdale\b/,
+    /\bya\b/,
+    /\bseguimos\b/,
+    /\bsi\b/,
+    /\bs[ií]\b/
+  ];
+
+  return patrones.some((re) => re.test(t));
 }
 
 function redondearDioptria(v) {
@@ -3278,7 +3319,7 @@ function iniciarBinocular() {
     rxBasePaso: rxBase,
     rxVariante: rxVar,
     paso: 'esfera',
-    faseBinocular: FB_ESF_BASE,
+    faseBinocular: FB_TRANS_LISTO,
     omitirCilindro: false
   };
 
@@ -3325,7 +3366,16 @@ function generarPasosEtapa6() {
 
   const fase = estadoActual.faseBinocular;
 
-  if (fase === FB_ESF_BASE) {
+  if (fase === FB_TRANS_LISTO) {
+    pasos.push({
+      tipo: 'foroptero',
+      orden: 1,
+      foroptero: foropteroDesdeRx(estadoActual.rxBasePaso)
+    });
+    pasos.push({ tipo: 'esperar_foroptero', orden: 2 });
+    pasos.push(tvPaso(3));
+    pasos.push({ tipo: 'hablar', orden: 4, mensaje: MSG_BINOC_TRANSICION });
+  } else if (fase === FB_ESF_BASE) {
     pasos.push({
       tipo: 'foroptero',
       orden: 1,
@@ -3407,6 +3457,23 @@ function procesarRespuestaBinocular(respuestaPaciente, interpretacionComparacion
 
   if (!estado || !testActual || testActual.tipo !== 'binocular') {
     return { ok: false, error: 'No estamos en test binocular' };
+  }
+
+  if (estado.faseBinocular === FB_TRANS_LISTO) {
+    if (esRespuestaContinuidadBinocular(respuestaPaciente)) {
+      estado.faseBinocular = FB_ESF_BASE;
+      return { ok: true, necesitaMostrarLente: true };
+    }
+    return {
+      ok: true,
+      pasos: [
+        {
+          tipo: 'hablar',
+          orden: 1,
+          mensaje: MSG_BINOC_REINTENTO_LISTO
+        }
+      ]
+    };
   }
 
   if (estado.faseBinocular !== FB_ESF_PREG && estado.faseBinocular !== FB_CIL_PREG) {
